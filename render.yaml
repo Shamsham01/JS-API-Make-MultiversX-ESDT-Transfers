@@ -3,7 +3,7 @@ services:
     name: javascript-api
     env: node
     plan: free
-    buildCommand: 'npm install && npm install express body-parser'
+    buildCommand: 'npm install && npm install express body-parser node-fetch ora'
     startCommand: 'node index.js'
     envVars:
       - key: SECURE_TOKEN
