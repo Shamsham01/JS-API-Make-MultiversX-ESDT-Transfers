@@ -1,19 +1,28 @@
 {
-  "name": "nodejs",
+  "name": "javascript-api",
   "version": "1.0.0",
-  "description": "",
+  "description": "Node.js API for executing JavaScript code and handling transactions on MultiversX.",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node index.js"
   },
   "keywords": [],
-  "author": "Jannis Moore",
+  "author": "Przem & BuddyAI",
   "license": "ISC",
   "dependencies": {
-    "@types/node": "^18.0.6",
-    "body-parser": "^1.20.2",
     "express": "^4.19.2",
-    "node-fetch": "^2.6.1",
-    "ora": "^5.4.1"
+    "body-parser": "^1.20.2",
+    "axios": "^1.2.1",
+    "ora": "^5.4.1",
+    "fs": "0.0.1-security",
+    "path": "^0.12.7",
+    "p-throttle": "^5.1.0",
+    "prompts": "^2.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.6"
+  },
+  "engines": {
+    "node": ">=14.0.0"
   }
 }
