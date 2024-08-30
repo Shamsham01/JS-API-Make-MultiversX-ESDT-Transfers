@@ -1,14 +1,20 @@
-const express = require("express");
-const bodyParser = require("body-parser");
+const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const bodyParser = require('body-parser');
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 
 // Secure token from environment variable
 const SECURE_TOKEN = process.env.SECURE_TOKEN;
 
+// Path to the PEM file
+const PEM_PATH = '/etc/secrets/walletKey.pem'; // Update this with your actual PEM file name
+
 // Middleware
-app.use(bodyParser.text({ type: "text/plain" }));
+app.use(bodyParser.text({ type: 'text/plain' }));
+app.use(express.json());
 
 // Function to check token
 const checkToken = (req, res, next) => {
@@ -16,23 +22,37 @@ const checkToken = (req, res, next) => {
     if (token === SECURE_TOKEN) {
         next();
     } else {
-        res.status(401).json({ error: "Unauthorized" });
+        res.status(401).json({ error: 'Unauthorized' });
     }
 };
 
-// Execute endpoint
-app.post("/execute", checkToken, (req, res) => {
-    const code = req.body;
-    if (!code) {
-        return res.status(400).json({ error: "No code provided" });
-    }
+// Your function to handle the signing and sending of transactions
+const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
+    // Implement your logic to sign and send the transaction
+    // Return the result or throw an error
+    return {
+        message: 'Transaction sent successfully',
+        recipient,
+        amount,
+        tokenTicker,
+    };
+};
 
+// Execute endpoint for dynamic code execution
+app.post('/execute', checkToken, async (req, res) => {
     try {
-        // Execute the code
-        const result = eval(code);
+        const { recipient, amount, tokenTicker } = req.body;
+
+        // Load PEM file
+        const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
+
+        // Call your function that signs and sends the transaction
+        const result = await sendEsdtToken(pemKey, recipient, amount, tokenTicker);
+
         res.json({ result });
     } catch (error) {
-        res.status(500).json({ error: error.message, trace: error.stack });
+        console.error('Error executing transaction:', error);
+        res.status(500).json({ error: error.message });
     }
 });
 
