@@ -43,16 +43,16 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
 
         // Prepare data for ESDT transfer
         const tokenHex = Buffer.from(tokenTicker).toString('hex');
-        const amountHex = amount.toString(16);
+        const amountHex = amount.toString(16); // Ensure the amount is in hexadecimal format
         const dataField = `ESDTTransfer@${tokenHex}@${amountHex}`;
 
         // Build the transaction
         const tx = new Transaction({
-            nonce: await provider.getAccountNonce(senderAddress),
+            nonce: await provider.getAccountNonce(senderAddress), // Get the account's nonce
             receiver: receiverAddress,
-            gasLimit: new GasLimit(500000),
+            gasLimit: new GasLimit(500000), // ESDT transfer requires at least 500000 gas
             value: '0', // No EGLD should be transferred, only ESDT
-            data: new TransactionPayload(dataField),
+            data: new TransactionPayload(dataField), // Payload for the ESDT transfer
             sender: senderAddress,
             chainID: '1', // Mainnet chain ID
             version: new TransactionVersion(1)
