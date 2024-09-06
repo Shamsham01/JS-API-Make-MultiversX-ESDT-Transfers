@@ -24,38 +24,33 @@ app.use(express.json());
 // Function to check token
 const checkToken = (req, res, next) => {
     const token = req.headers.authorization;
+    console.log('Received Token:', token); // Log the received token
     if (token === SECURE_TOKEN) {
         next();
     } else {
+        console.error('Invalid Token:', token);
         res.status(401).json({ error: 'Unauthorized' });
     }
 };
 
-// Add logging to check if the PEM file exists
-if (fs.existsSync(PEM_PATH)) {
-    console.log('PEM file exists');
-} else {
-    console.log('PEM file not found at', PEM_PATH);
-}
-
 // Function to handle the signing and sending of ESDT transactions
 const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
     try {
-        console.log('Loading signer from PEM...');
+        console.log('Signing and sending transaction'); // Log before transaction
+
         // Create a signer using the PEM file
         const signer = UserSigner.fromPem(pemKey);
         const senderAddress = signer.getAddress();
-        console.log('Sender Address:', senderAddress);
 
         // Convert recipient to Address
         const receiverAddress = new Address(recipient);
-        console.log('Receiver Address:', receiverAddress);
 
         // Prepare data for ESDT transfer
         const tokenHex = Buffer.from(tokenTicker).toString('hex');
         const amountHex = amount.toString(16); // Ensure the amount is in hexadecimal format
         const dataField = `ESDTTransfer@${tokenHex}@${amountHex}`;
-        console.log('Data Field for ESDT Transfer:', dataField);
+
+        console.log(`Data Field: ${dataField}`); // Log the data field
 
         // Build the transaction
         const tx = new Transaction({
@@ -69,14 +64,13 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
             version: new TransactionVersion(1)
         });
 
-        console.log('Signing the transaction...');
         // Sign the transaction
         await signer.sign(tx);
-        console.log('Transaction signed:', tx);
 
         // Send the transaction
         const txHash = await provider.sendTransaction(tx);
-        console.log('Transaction Hash:', txHash);
+
+        console.log(`Transaction Hash: ${txHash.toString()}`); // Log the transaction hash
 
         return { txHash: txHash.toString() };
     } catch (error) {
@@ -87,12 +81,16 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
 
 // Execute endpoint
 app.post('/execute', checkToken, async (req, res) => {
+    console.log('Headers:', req.headers); // Log headers
+    console.log('Request Body:', req.body); // Log body
+
     try {
         const { recipient, amount, tokenTicker } = req.body;
+        console.log('Transaction details:', recipient, amount, tokenTicker); // Log transaction details
 
         // Load PEM file
         const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
-        console.log('PEM file loaded successfully');
+        console.log('PEM file loaded'); // Log PEM file load
 
         // Call function to send the transaction
         const result = await sendEsdtToken(pemKey, recipient, amount, tokenTicker);
