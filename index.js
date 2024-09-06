@@ -1,7 +1,8 @@
 const express = require('express');
-const fs = require('fs').promises;  // Using promises to read PEM file
+const fs = require('fs').promises;
 const bodyParser = require('body-parser');
-const { UserSigner, Address, TransactionPayload, Transaction, GasLimit, TransactionVersion } = require('@multiversx/sdk-core');
+const { UserSigner } = require('@multiversx/sdk-wallet');  // Changed this import
+const { Address, TransactionPayload, Transaction, GasLimit, TransactionVersion } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 
 const app = express();
@@ -36,7 +37,7 @@ const sendEsdtToken = async (pemPath, recipient, amount, tokenTicker) => {
         const pemKey = await fs.readFile(pemPath, 'utf8');
 
         // Create a signer using the PEM file content
-        const signer = UserSigner.fromPem(pemKey.trim());
+        const signer = UserSigner.fromPem(pemKey.trim());  // Corrected this with proper import from @multiversx/sdk-wallet
         const senderAddress = signer.getAddress();
 
         // Convert recipient to Address
