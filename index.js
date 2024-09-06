@@ -31,20 +31,31 @@ const checkToken = (req, res, next) => {
     }
 };
 
+// Add logging to check if the PEM file exists
+if (fs.existsSync(PEM_PATH)) {
+    console.log('PEM file exists');
+} else {
+    console.log('PEM file not found at', PEM_PATH);
+}
+
 // Function to handle the signing and sending of ESDT transactions
 const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
     try {
+        console.log('Loading signer from PEM...');
         // Create a signer using the PEM file
         const signer = UserSigner.fromPem(pemKey);
         const senderAddress = signer.getAddress();
+        console.log('Sender Address:', senderAddress);
 
         // Convert recipient to Address
         const receiverAddress = new Address(recipient);
+        console.log('Receiver Address:', receiverAddress);
 
         // Prepare data for ESDT transfer
         const tokenHex = Buffer.from(tokenTicker).toString('hex');
         const amountHex = amount.toString(16); // Ensure the amount is in hexadecimal format
         const dataField = `ESDTTransfer@${tokenHex}@${amountHex}`;
+        console.log('Data Field for ESDT Transfer:', dataField);
 
         // Build the transaction
         const tx = new Transaction({
@@ -58,11 +69,14 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
             version: new TransactionVersion(1)
         });
 
+        console.log('Signing the transaction...');
         // Sign the transaction
         await signer.sign(tx);
+        console.log('Transaction signed:', tx);
 
         // Send the transaction
         const txHash = await provider.sendTransaction(tx);
+        console.log('Transaction Hash:', txHash);
 
         return { txHash: txHash.toString() };
     } catch (error) {
@@ -78,6 +92,7 @@ app.post('/execute', checkToken, async (req, res) => {
 
         // Load PEM file
         const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
+        console.log('PEM file loaded successfully');
 
         // Call function to send the transaction
         const result = await sendEsdtToken(pemKey, recipient, amount, tokenTicker);
