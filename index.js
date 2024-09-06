@@ -1,7 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const bodyParser = require('body-parser');
-const { UserSigner, Address, TransactionPayload, Transaction, GasLimit, TransactionVersion, SecretKey } = require('@multiversx/sdk-core');
+const { SecretKey, UserSigner, Address, TransactionPayload, Transaction, GasLimit, TransactionVersion } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 
 const app = express();
@@ -33,7 +33,7 @@ const checkToken = (req, res, next) => {
 // Function to handle the signing and sending of ESDT transactions
 const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
     try {
-        // Load and parse PEM key
+        // Load and parse PEM key using SecretKey.fromPem
         const privateKey = SecretKey.fromPem(pemKey);
         const signer = new UserSigner(privateKey);
         const senderAddress = signer.getAddress();
