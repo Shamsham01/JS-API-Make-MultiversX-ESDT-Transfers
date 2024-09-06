@@ -2,6 +2,8 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const bodyParser = require('body-parser');
+const { UserSigner, Address, TransactionPayload, Transaction, GasLimit, TransactionVersion } = require('@multiversx/sdk-core');
+const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -10,7 +12,10 @@ const PORT = process.env.PORT || 10000;
 const SECURE_TOKEN = process.env.SECURE_TOKEN;
 
 // Path to the PEM file
-const PEM_PATH = '/etc/secrets/walletKey.pem'; // Update this with your actual PEM file name
+const PEM_PATH = '/etc/secrets/walletKey.pem';
+
+// MultiversX provider
+const provider = new ProxyNetworkProvider("https://api.multiversx.com");
 
 // Middleware
 app.use(bodyParser.text({ type: 'text/plain' }));
@@ -26,19 +31,47 @@ const checkToken = (req, res, next) => {
     }
 };
 
-// Your function to handle the signing and sending of transactions
+// Function to handle the signing and sending of ESDT transactions
 const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
-    // Implement your logic to sign and send the transaction
-    // Return the result or throw an error
-    return {
-        message: 'Transaction sent successfully',
-        recipient,
-        amount,
-        tokenTicker,
-    };
+    try {
+        // Create a signer using the PEM file
+        const signer = UserSigner.fromPem(pemKey);
+        const senderAddress = signer.getAddress();
+
+        // Convert recipient to Address
+        const receiverAddress = new Address(recipient);
+
+        // Prepare data for ESDT transfer
+        const tokenHex = Buffer.from(tokenTicker).toString('hex');
+        const amountHex = amount.toString(16);
+        const dataField = `ESDTTransfer@${tokenHex}@${amountHex}`;
+
+        // Build the transaction
+        const tx = new Transaction({
+            nonce: await provider.getAccountNonce(senderAddress),
+            receiver: receiverAddress,
+            gasLimit: new GasLimit(500000),
+            value: '0', // No EGLD should be transferred, only ESDT
+            data: new TransactionPayload(dataField),
+            sender: senderAddress,
+            chainID: '1', // Mainnet chain ID
+            version: new TransactionVersion(1)
+        });
+
+        // Sign the transaction
+        await signer.sign(tx);
+
+        // Send the transaction
+        const txHash = await provider.sendTransaction(tx);
+
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending ESDT transaction:', error);
+        throw new Error('Transaction failed');
+    }
 };
 
-// Execute endpoint for dynamic code execution
+// Execute endpoint
 app.post('/execute', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
@@ -46,7 +79,7 @@ app.post('/execute', checkToken, async (req, res) => {
         // Load PEM file
         const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
 
-        // Call your function that signs and sends the transaction
+        // Call function to send the transaction
         const result = await sendEsdtToken(pemKey, recipient, amount, tokenTicker);
 
         res.json({ result });
