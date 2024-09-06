@@ -1,7 +1,8 @@
 const express = require('express');
 const fs = require('fs');
+const path = require('path');
 const bodyParser = require('body-parser');
-const { SecretKey, UserSigner, Address, TransactionPayload, Transaction, GasLimit, TransactionVersion } = require('@multiversx/sdk-core');
+const { UserSigner, Address, Transaction, GasLimit, TransactionPayload, TransactionVersion, TokenTransfer } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 
 const app = express();
@@ -14,7 +15,7 @@ const SECURE_TOKEN = process.env.SECURE_TOKEN;
 const PEM_PATH = '/etc/secrets/walletKey.pem';
 
 // MultiversX provider
-const provider = new ProxyNetworkProvider("https://api.multiversx.com");
+const provider = new ProxyNetworkProvider("https://api.multiversx.com", { clientName: "multiversx-your-client-name" });
 
 // Middleware
 app.use(bodyParser.text({ type: 'text/plain' }));
@@ -33,26 +34,23 @@ const checkToken = (req, res, next) => {
 // Function to handle the signing and sending of ESDT transactions
 const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
     try {
-        // Load and parse PEM key using SecretKey.fromPem
-        const privateKey = SecretKey.fromPem(pemKey);
-        const signer = new UserSigner(privateKey);
+        // Create a signer using the PEM file
+        const signer = UserSigner.fromPem(pemKey);
         const senderAddress = signer.getAddress();
 
         // Convert recipient to Address
         const receiverAddress = new Address(recipient);
 
-        // Prepare data for ESDT transfer
-        const tokenHex = Buffer.from(tokenTicker).toString('hex');
-        const amountHex = BigInt(amount).toString(16); // Ensure the amount is in hexadecimal format
-        const dataField = `ESDTTransfer@${tokenHex}@${amountHex}`;
+        // Prepare data for ESDT transfer using TokenTransfer class
+        const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, amount, 18); // Adjust decimals if necessary
 
-        // Build the transaction
+        // Build the transaction using TransferTransactionsFactory
         const tx = new Transaction({
             nonce: await provider.getAccountNonce(senderAddress), // Get the account's nonce
             receiver: receiverAddress,
             gasLimit: new GasLimit(500000), // ESDT transfer requires at least 500000 gas
             value: '0', // No EGLD should be transferred, only ESDT
-            data: new TransactionPayload(dataField), // Payload for the ESDT transfer
+            data: new TransactionPayload(tokenTransfer.toTransactionPayload()), // Payload for the ESDT transfer
             sender: senderAddress,
             chainID: '1', // Mainnet chain ID
             version: new TransactionVersion(1)
@@ -63,6 +61,10 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
 
         // Send the transaction
         const txHash = await provider.sendTransaction(tx);
+
+        // Wait for transaction completion (optional)
+        const watcher = new TransactionWatcher(provider);
+        await watcher.awaitCompleted(txHash);
 
         return { txHash: txHash.toString() };
     } catch (error) {
