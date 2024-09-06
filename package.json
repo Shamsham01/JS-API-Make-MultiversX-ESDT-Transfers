@@ -11,7 +11,7 @@
   "license": "ISC",
   "dependencies": {
     "@multiversx/sdk-core": "^13.5.0",  // Latest version of sdk-core
-    "@multiversx/sdk-network-providers": "^13.5.0",  // Latest version of network-providers
+    "@multiversx/sdk-network-providers": "^2.7.1",  // Correct latest version for network-providers
     "body-parser": "^1.20.2",
     "express": "^4.19.2",
     "node-fetch": "^2.6.1",
