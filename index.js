@@ -4,6 +4,7 @@ const path = require('path');
 const bodyParser = require('body-parser');
 const { UserSigner, Address, TransactionPayload, Transaction, TransactionVersion, TransactionGasLimit } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
+const { UserSigner } = require('@multiversx/sdk-wallet'); // Ensure this import is correct
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -35,7 +36,7 @@ const checkToken = (req, res, next) => {
 const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
     try {
         // Create a signer using the PEM file
-        const signer = UserSigner.fromPem(pemKey);
+        const signer = UserSigner.fromPem(pemKey); // Ensure this line works
         const senderAddress = signer.getAddress();
 
         // Convert recipient to Address
