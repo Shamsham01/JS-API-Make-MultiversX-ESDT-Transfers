@@ -34,7 +34,7 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
         const nonce = accountOnNetwork.nonce;
 
         // Create a factory for ESDT token transfer transactions
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "D" }); // Update ChainID based on your network
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" }); // Update ChainID based on your network
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
         const tx = factory.createTransactionForESDTTokenTransfer({
