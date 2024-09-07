@@ -2,9 +2,8 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const bodyParser = require('body-parser');
-const { Address, TransactionPayload, Transaction, GasLimit, TransactionVersion, Account } = require('@multiversx/sdk-core');
+const { UserSigner, Address, TransactionPayload, Transaction, TransactionVersion, TransactionGasLimit } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
-const { UserSigner } = require('@multiversx/sdk-wallet'); // Corrected import
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -16,7 +15,7 @@ const SECURE_TOKEN = process.env.SECURE_TOKEN;
 const PEM_PATH = '/etc/secrets/walletKey.pem';
 
 // MultiversX provider
-const provider = new ProxyNetworkProvider("https://api.multiversx.com");
+const provider = new ProxyNetworkProvider("https://api.multiversx.com", { clientName: "javascript-api" });
 
 // Middleware
 app.use(bodyParser.text({ type: 'text/plain' }));
@@ -39,24 +38,19 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
         const signer = UserSigner.fromPem(pemKey);
         const senderAddress = signer.getAddress();
 
-        // Fetch account data from network to get the nonce
-        const account = new Account(senderAddress);
-        const accountOnNetwork = await provider.getAccount(senderAddress);
-        account.update(accountOnNetwork);
-
         // Convert recipient to Address
         const receiverAddress = new Address(recipient);
 
         // Prepare data for ESDT transfer
         const tokenHex = Buffer.from(tokenTicker).toString('hex');
-        const amountHex = BigInt(amount).toString(16); // Ensure the amount is in hexadecimal format
+        const amountHex = amount.toString(16); // Ensure the amount is in hexadecimal format
         const dataField = `ESDTTransfer@${tokenHex}@${amountHex}`;
 
         // Build the transaction
         const tx = new Transaction({
-            nonce: account.nonce, // Get the account's nonce
+            nonce: await provider.getAccountNonce(senderAddress), // Get the account's nonce
             receiver: receiverAddress,
-            gasLimit: new GasLimit(500000), // ESDT transfer requires at least 500000 gas
+            gasLimit: new TransactionGasLimit(500000), // Use TransactionGasLimit constructor
             value: '0', // No EGLD should be transferred, only ESDT
             data: new TransactionPayload(dataField), // Payload for the ESDT transfer
             sender: senderAddress,
