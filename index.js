@@ -2,8 +2,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const bodyParser = require('body-parser');
-const { UserSigner, Address, TransactionPayload, Transaction, GasLimit, TransactionVersion, Account } = require('@multiversx/sdk-core');
+const { Address, TransactionPayload, Transaction, GasLimit, TransactionVersion, Account } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
+const { UserSigner } = require('@multiversx/sdk-wallet'); // Corrected import
 
 const app = express();
 const PORT = process.env.PORT || 10000;
