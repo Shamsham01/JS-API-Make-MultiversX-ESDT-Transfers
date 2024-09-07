@@ -10,8 +10,7 @@ const PORT = process.env.PORT || 10000;
 
 const SECURE_TOKEN = process.env.SECURE_TOKEN;
 const PEM_PATH = '/etc/secrets/walletKey.pem';
-const provider = new ProxyNetworkProvider("https://devnet-gateway.multiversx.com", { clientName: "javascript-api" });
-
+const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
 app.use(bodyParser.text({ type: 'text/plain' }));
 app.use(express.json());
 
