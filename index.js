@@ -2,9 +2,9 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const bodyParser = require('body-parser');
-const { Address, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, TransactionGasLimit } = require('@multiversx/sdk-core');
+const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, TransactionGasLimit } = require('@multiversx/sdk-core');  // Add Token import here
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
-const { UserSigner } = require('@multiversx/sdk-wallet');  // Only import it once
+const { UserSigner } = require('@multiversx/sdk-wallet');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
