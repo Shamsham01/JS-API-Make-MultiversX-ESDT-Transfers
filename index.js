@@ -1,6 +1,7 @@
 const express = require('express');
 const fs = require('fs');
 const bodyParser = require('body-parser');
+const fetch = require('node-fetch'); // Import node-fetch for API requests
 const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
@@ -28,9 +29,16 @@ const checkToken = (req, res, next) => {
     }
 };
 
-// Function to get token decimals
+// Function to get token decimals from MultiversX API
 const getTokenDecimals = async (tokenTicker) => {
-    const tokenInfo = await provider.getToken(tokenTicker);
+    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
+    const response = await fetch(apiUrl);
+    
+    if (!response.ok) {
+        throw new Error(`Failed to fetch token info: ${response.statusText}`);
+    }
+
+    const tokenInfo = await response.json();
     return tokenInfo.decimals || 0; // Default to 0 if decimals not found
 };
 
