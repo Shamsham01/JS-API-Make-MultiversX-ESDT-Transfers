@@ -1,78 +1,94 @@
 const express = require('express');
-const fs = require('fs');
 const bodyParser = require('body-parser');
-const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
-const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
-
+const { Address, TokenTransfer, Transaction, GasLimit, TransactionPayload } = require('@multiversx/sdk-core');
+const { ApiNetworkProvider } = require('@multiversx/sdk-network-providers');
 const app = express();
-const PORT = process.env.PORT || 10000;
 
-const SECURE_TOKEN = process.env.SECURE_TOKEN;
-const PEM_PATH = '/etc/secrets/walletKey.pem';
-const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
-app.use(bodyParser.text({ type: 'text/plain' }));
-app.use(express.json());
+const provider = new ApiNetworkProvider('https://devnet-api.multiversx.com'); // Use mainnet URL for production
 
-const checkToken = (req, res, next) => {
-    const token = req.headers.authorization;
-    if (token === SECURE_TOKEN) {
-        next();
-    } else {
-        res.status(401).json({ error: 'Unauthorized' });
-    }
-};
+app.use(bodyParser.json());
 
-const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
+const signer = UserSigner.fromPem('path/to/your/pemfile.pem'); // Update with the actual path
+
+// Helper function to fetch token details (decimals)
+async function getTokenDetails(tokenIdentifier) {
     try {
-        const signer = UserSigner.fromPem(pemKey);
-        const senderAddress = signer.getAddress();
-        const receiverAddress = new Address(recipient);
+        const tokenDetails = await provider.getToken(tokenIdentifier);
+        return tokenDetails;
+    } catch (error) {
+        console.error("Error fetching token details:", error);
+        return { decimals: 18 }; // Default to 18 decimals
+    }
+}
 
-        // Fetch account details to get the nonce
-        const accountOnNetwork = await provider.getAccount(senderAddress);
-        const nonce = accountOnNetwork.nonce;
+// Helper function to convert user amount to blockchain format
+function convertToBlockchainAmount(userAmount, decimals) {
+    return BigInt(userAmount * Math.pow(10, decimals));
+}
 
-        // Create a factory for ESDT token transfer transactions
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" }); // Update ChainID based on your network
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+// Check token middleware
+async function checkToken(req, res, next) {
+    const { sender, tokenIdentifier } = req.body;
+    if (!sender || !tokenIdentifier) {
+        return res.status(400).json({ error: "Missing required fields: sender, tokenIdentifier" });
+    }
+    next();
+}
 
-        const tx = factory.createTransactionForESDTTokenTransfer({
-            sender: senderAddress,
-            receiver: receiverAddress,
-            tokenTransfers: [
-                new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker }),
-                    amount: BigInt(amount)
-                })
-            ]
+// Transfer ESDT/SFT function
+async function sendEsdtTransfer({ sender, receiver, tokenIdentifier, userAmount }) {
+    try {
+        const account = await provider.getAccount(Address.fromBech32(sender));
+
+        // Fetch token decimals
+        const tokenDetails = await getTokenDetails(tokenIdentifier);
+        const decimals = tokenDetails.decimals || 18;
+
+        // Convert user-friendly amount to blockchain-compatible value
+        const amountInBlockchainFormat = convertToBlockchainAmount(userAmount, decimals);
+
+        // Create token transfer
+        const transferData = TokenTransfer.fungibleFromAmount(tokenIdentifier, amountInBlockchainFormat, decimals);
+
+        // Create transaction
+        const tx = new Transaction({
+            sender: Address.fromBech32(sender),
+            receiver: Address.fromBech32(receiver),
+            value: 0,  // No EGLD value for ESDT transfers
+            gasLimit: new GasLimit(500000),
+            chainID: "D",  // "1" for Mainnet
+            data: new TransactionPayload(transferData.toTransactionData()),
+            nonce: account.nonce
         });
 
-        tx.nonce = nonce;
-        tx.gasLimit = 500000n;  // Gas limit as BigInt
-
-        await signer.sign(tx);
-
+        // Sign the transaction
+        tx.signature = await signer.sign(tx);
+        
+        // Send the transaction
         const txHash = await provider.sendTransaction(tx);
-        return { txHash: txHash.toString() };
-    } catch (error) {
-        console.error('Error sending ESDT transaction:', error);
-        throw new Error('Transaction failed');
-    }
-};
+        console.log(`Transaction sent! Hash: ${txHash}`);
 
-app.post('/execute', checkToken, async (req, res) => {
-    try {
-        const { recipient, amount, tokenTicker } = req.body;
-        const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
-        const result = await sendEsdtToken(pemKey, recipient, amount, tokenTicker);
-        res.json({ result });
+        return txHash;
     } catch (error) {
-        console.error('Error executing transaction:', error);
-        res.status(500).json({ error: error.message });
+        console.error("Error sending transaction:", error);
+        throw error;
+    }
+}
+
+// Endpoint for sending ESDT
+app.post('/transfer', checkToken, async (req, res) => {
+    try {
+        const { sender, receiver, tokenIdentifier, userAmount } = req.body;
+        const txHash = await sendEsdtTransfer({ sender, receiver, tokenIdentifier, userAmount });
+        res.json({ success: true, txHash });
+    } catch (error) {
+        res.status(500).json({ error: "Failed to execute transaction", details: error.message });
     }
 });
 
+// Start server
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
