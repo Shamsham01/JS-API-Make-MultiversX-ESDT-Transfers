@@ -10,7 +10,7 @@ const BigNumber = require('bignumber.js');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-const SECURE_TOKEN = process.env.SECURE_TOKEN; // Make sure this is set in your environment variables
+const SECURE_TOKEN = process.env.SECURE_TOKEN; // Ensure this is set in your environment variables
 const PEM_PATH = '/etc/secrets/walletKey.pem';
 
 // Set up the network provider for MultiversX mainnet or devnet
@@ -132,7 +132,7 @@ const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
 
         // Get token decimals (for SFTs it's typically 0)
         const decimals = await getTokenDecimalsSFT();
-        const adjustedAmount = amount * BigInt(10 ** decimals);
+        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);  // Convert 'amount' to BigInt before multiplying
 
         // Create a factory for SFT transfer transactions
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
