@@ -10,7 +10,7 @@ const BigNumber = require('bignumber.js');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-const SECURE_TOKEN = process.env.SECURE_TOKEN;
+const SECURE_TOKEN = process.env.SECURE_TOKEN; // Make sure this is set in your environment variables
 const PEM_PATH = '/etc/secrets/walletKey.pem';
 
 // Set up the network provider for MultiversX mainnet or devnet
@@ -21,6 +21,8 @@ app.use(bodyParser.json()); // Support JSON-encoded bodies
 // Middleware to check authorization token
 const checkToken = (req, res, next) => {
     const token = req.headers.authorization;
+
+    // Ensure the token starts with 'Bearer' followed by the secure token
     if (token === `Bearer ${SECURE_TOKEN}`) {
         next();
     } else {
@@ -28,7 +30,7 @@ const checkToken = (req, res, next) => {
     }
 };
 
-// Function to handle /execute/authorize endpoint
+// --------------- Authorization Endpoint --------------- //
 app.post('/execute/authorize', checkToken, (req, res) => {
     return res.json({ message: "Authorization Successful" });
 });
@@ -128,9 +130,9 @@ const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
-        // Convert amount and nonce explicitly to BigInt
-        const adjustedAmount = BigInt(amount); // Ensure amount is BigInt
-        const adjustedNonce = BigInt(nonce); // Ensure nonce is BigInt
+        // Get token decimals (for SFTs it's typically 0)
+        const decimals = await getTokenDecimalsSFT();
+        const adjustedAmount = amount * BigInt(10 ** decimals);
 
         // Create a factory for SFT transfer transactions
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
@@ -141,7 +143,7 @@ const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
             receiver: receiverAddress,
             tokenTransfers: [
                 new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker, nonce: adjustedNonce }),
+                    token: new Token({ identifier: tokenTicker, nonce: nonce }),
                     amount: adjustedAmount
                 })
             ]
