@@ -1,11 +1,11 @@
 const express = require('express');
 const fs = require('fs');
 const bodyParser = require('body-parser');
-const fetch = require('node-fetch'); // Import node-fetch for API requests
+const fetch = require('node-fetch');
 const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
-const BigNumber = require('bignumber.js'); // BigNumber for precise decimal conversions
+const BigNumber = require('bignumber.js');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -13,23 +13,29 @@ const PORT = process.env.PORT || 10000;
 const SECURE_TOKEN = process.env.SECURE_TOKEN;
 const PEM_PATH = '/etc/secrets/walletKey.pem';
 
-// Set up the network provider for mainnet or devnet as needed
+// Set up the network provider for MultiversX mainnet or devnet
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
 
-app.use(bodyParser.text({ type: 'text/plain' }));
-app.use(express.json());
+app.use(bodyParser.json()); // Support JSON-encoded bodies
 
 // Middleware to check authorization token
 const checkToken = (req, res, next) => {
     const token = req.headers.authorization;
-    if (token === SECURE_TOKEN) {
+    if (token === `Bearer ${SECURE_TOKEN}`) {
         next();
     } else {
         res.status(401).json({ error: 'Unauthorized' });
     }
 };
 
-// Function to get token decimals from MultiversX API
+// Function to handle /execute/authorize endpoint
+app.post('/execute/authorize', checkToken, (req, res) => {
+    return res.json({ message: "Authorization Successful" });
+});
+
+// --------------- ESDT Transfer Logic --------------- //
+
+// Function to get token decimals for ESDT transfers
 const getTokenDecimals = async (tokenTicker) => {
     const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
     const response = await fetch(apiUrl);
@@ -42,7 +48,7 @@ const getTokenDecimals = async (tokenTicker) => {
     return tokenInfo.decimals || 0; // Default to 0 if decimals not found
 };
 
-// Function to convert token amount based on decimals
+// Function to convert token amount for ESDT based on decimals
 const convertAmountToBlockchainValue = (amount, decimals) => {
     const factor = new BigNumber(10).pow(decimals); // Factor = 10^decimals
     return new BigNumber(amount).multipliedBy(factor).toFixed(0); // Convert to integer string
@@ -91,15 +97,78 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
     }
 };
 
-// Route to handle token transfers
-app.post('/execute', checkToken, async (req, res) => {
+// Route for ESDT transfers
+app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
         const result = await sendEsdtToken(pemKey, recipient, amount, tokenTicker);
         res.json({ result });
     } catch (error) {
-        console.error('Error executing transaction:', error);
+        console.error('Error executing ESDT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --------------- SFT Transfer Logic --------------- //
+
+// Function to assume SFTs have 0 decimals
+const getTokenDecimalsSFT = async () => {
+    return 0;
+};
+
+// Function to send SFT tokens
+const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
+    try {
+        const signer = UserSigner.fromPem(pemKey);
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        // Fetch account details to get the nonce
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const accountNonce = accountOnNetwork.nonce;
+
+        // Get token decimals (for SFTs it's typically 0)
+        const decimals = await getTokenDecimalsSFT();
+        const adjustedAmount = amount * BigInt(10 ** decimals);
+
+        // Create a factory for SFT transfer transactions
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = factory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            tokenTransfers: [
+                new TokenTransfer({
+                    token: new Token({ identifier: tokenTicker, nonce: nonce }),
+                    amount: adjustedAmount
+                })
+            ]
+        });
+
+        tx.nonce = accountNonce;
+        tx.gasLimit = 500000n; // Manually set gas limit as BigInt
+
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending SFT transaction:', error);
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for SFT transfers
+app.post('/execute/sftTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, amount, tokenTicker, tokenNonce } = req.body;
+        const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
+        const result = await sendSftToken(pemKey, recipient, amount, tokenTicker, tokenNonce);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing SFT transaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
