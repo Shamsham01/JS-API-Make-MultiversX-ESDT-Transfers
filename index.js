@@ -128,9 +128,9 @@ const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
-        // Get token decimals (for SFTs it's typically 0)
-        const decimals = await getTokenDecimalsSFT();
-        const adjustedAmount = amount * BigInt(10 ** decimals);
+        // Convert amount and nonce explicitly to BigInt
+        const adjustedAmount = BigInt(amount); // Ensure amount is BigInt
+        const adjustedNonce = BigInt(nonce); // Ensure nonce is BigInt
 
         // Create a factory for SFT transfer transactions
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
@@ -141,7 +141,7 @@ const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
             receiver: receiverAddress,
             tokenTransfers: [
                 new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker, nonce: nonce }),
+                    token: new Token({ identifier: tokenTicker, nonce: adjustedNonce }),
                     amount: adjustedAmount
                 })
             ]
@@ -173,6 +173,7 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
+// Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
 });
