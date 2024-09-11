@@ -28,10 +28,20 @@ const checkToken = (req, res, next) => {
 // Function to validate and return the PEM content from the request body
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
+    
+    // Check if the content is already properly formatted and skip reformatting
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
         throw new Error('Invalid PEM content');
     }
-    return pemContent;
+    
+    // If the content already has "\n", skip reformatting
+    if (pemContent.includes('\n')) {
+        return pemContent;
+    }
+
+    // Reformat the PEM content by inserting new lines
+    const formattedPem = pemContent.replace(/\\n/g, '\n');
+    return formattedPem;
 };
 
 // --------------- Authorization Endpoint --------------- //
