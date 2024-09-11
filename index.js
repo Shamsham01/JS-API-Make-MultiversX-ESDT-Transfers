@@ -1,5 +1,4 @@
 const express = require('express');
-const fs = require('fs');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
@@ -9,20 +8,16 @@ const BigNumber = require('bignumber.js');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
+const SECURE_TOKEN = process.env.SECURE_TOKEN;  // Secure Token for authorization
 
-const SECURE_TOKEN = process.env.SECURE_TOKEN; // Ensure this is set in your environment variables
-const PEM_PATH = '/etc/secrets/walletKey.pem';
-
-// Set up the network provider for MultiversX mainnet or devnet
+// Set up the network provider for MultiversX (mainnet or devnet)
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
 
-app.use(bodyParser.json()); // Support JSON-encoded bodies
+app.use(bodyParser.json());  // Support JSON-encoded bodies
 
 // Middleware to check authorization token
 const checkToken = (req, res, next) => {
     const token = req.headers.authorization;
-
-    // Ensure the token starts with 'Bearer' followed by the secure token
     if (token === `Bearer ${SECURE_TOKEN}`) {
         next();
     } else {
@@ -30,9 +25,24 @@ const checkToken = (req, res, next) => {
     }
 };
 
+// Function to validate and return the PEM content from the request body
+const getPemContent = (req) => {
+    const pemContent = req.body.walletPem;
+    if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
+        throw new Error('Invalid PEM content');
+    }
+    return pemContent;
+};
+
 // --------------- Authorization Endpoint --------------- //
+// Handles /authorize endpoint to validate authorization and PEM content
 app.post('/execute/authorize', checkToken, (req, res) => {
-    return res.json({ message: "Authorization Successful" });
+    try {
+        const pemContent = getPemContent(req);  // Validate PEM content
+        res.json({ message: "Authorization Successful" });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
 });
 
 // --------------- ESDT Transfer Logic --------------- //
@@ -41,25 +51,23 @@ app.post('/execute/authorize', checkToken, (req, res) => {
 const getTokenDecimals = async (tokenTicker) => {
     const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
     const response = await fetch(apiUrl);
-    
     if (!response.ok) {
         throw new Error(`Failed to fetch token info: ${response.statusText}`);
     }
-
     const tokenInfo = await response.json();
-    return tokenInfo.decimals || 0; // Default to 0 if decimals not found
+    return tokenInfo.decimals || 0;  // Default to 0 if decimals not found
 };
 
 // Function to convert token amount for ESDT based on decimals
 const convertAmountToBlockchainValue = (amount, decimals) => {
-    const factor = new BigNumber(10).pow(decimals); // Factor = 10^decimals
-    return new BigNumber(amount).multipliedBy(factor).toFixed(0); // Convert to integer string
+    const factor = new BigNumber(10).pow(decimals);  // Factor = 10^decimals
+    return new BigNumber(amount).multipliedBy(factor).toFixed(0);  // Convert to integer string
 };
 
 // Function to send ESDT tokens
-const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
+const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     try {
-        const signer = UserSigner.fromPem(pemKey); // Load signer from PEM
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
@@ -72,7 +80,7 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
         const convertedAmount = convertAmountToBlockchainValue(amount, decimals);
 
         // Create a factory for ESDT token transfer transactions
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" }); // Update chainID accordingly
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
         const tx = factory.createTransactionForESDTTokenTransfer({
@@ -81,17 +89,16 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenTicker }),
-                    amount: BigInt(convertedAmount) // Handle token amount as BigInt
+                    amount: BigInt(convertedAmount)  // Handle token amount as BigInt
                 })
             ]
         });
 
-        tx.nonce = nonce; // Set transaction nonce
-        tx.gasLimit = 500000n; // Set gas limit as BigInt
+        tx.nonce = nonce;  // Set transaction nonce
+        tx.gasLimit = 500000n;  // Set gas limit as BigInt
 
-        await signer.sign(tx); // Sign the transaction
-
-        const txHash = await provider.sendTransaction(tx); // Send the transaction to the network
+        await signer.sign(tx);  // Sign the transaction
+        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending ESDT transaction:', error);
@@ -103,8 +110,8 @@ const sendEsdtToken = async (pemKey, recipient, amount, tokenTicker) => {
 app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
-        const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
-        const result = await sendEsdtToken(pemKey, recipient, amount, tokenTicker);
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
         res.json({ result });
     } catch (error) {
         console.error('Error executing ESDT transaction:', error);
@@ -120,9 +127,9 @@ const getTokenDecimalsSFT = async () => {
 };
 
 // Function to send SFT tokens
-const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
+const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
     try {
-        const signer = UserSigner.fromPem(pemKey);
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
@@ -132,7 +139,7 @@ const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
 
         // Get token decimals (for SFTs it's typically 0)
         const decimals = await getTokenDecimalsSFT();
-        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);  // Convert 'amount' to BigInt before multiplying
+        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);  // Ensure amounts are BigInts
 
         // Create a factory for SFT transfer transactions
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
@@ -143,18 +150,17 @@ const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
             receiver: receiverAddress,
             tokenTransfers: [
                 new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker, nonce: nonce }),
+                    token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
                     amount: adjustedAmount
                 })
             ]
         });
 
-        tx.nonce = accountNonce;
-        tx.gasLimit = 500000n; // Manually set gas limit as BigInt
+        tx.nonce = accountNonce;  // Set transaction nonce
+        tx.gasLimit = 500000n;  // Manually set gas limit as BigInt
 
-        await signer.sign(tx);
+        await signer.sign(tx);  // Sign the transaction
         const txHash = await provider.sendTransaction(tx);
-
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending SFT transaction:', error);
@@ -166,8 +172,8 @@ const sendSftToken = async (pemKey, recipient, amount, tokenTicker, nonce) => {
 app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker, tokenNonce } = req.body;
-        const pemKey = fs.readFileSync(PEM_PATH, 'utf8');
-        const result = await sendSftToken(pemKey, recipient, amount, tokenTicker, tokenNonce);
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
         res.json({ result });
     } catch (error) {
         console.error('Error executing SFT transaction:', error);
