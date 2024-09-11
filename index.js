@@ -25,11 +25,15 @@ const checkToken = (req, res, next) => {
     }
 };
 
-// Function to validate and return the PEM content from the request body
+// Function to validate and return the PEM content from the headers
 const getPemContent = (req) => {
-    const pemContent = req.body.walletPem;
-    if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
-        throw new Error('Invalid PEM content');
+    const pemContent = req.headers['wallet-pem'];
+    if (!pemContent || typeof pemContent !== 'string') {
+        throw new Error('PEM content is missing or invalid.');
+    }
+    // Basic validation for PEM format
+    if (!pemContent.includes('-----BEGIN PRIVATE KEY-----') || !pemContent.includes('-----END PRIVATE KEY-----')) {
+        throw new Error('Invalid PEM structure. It should include both BEGIN and END tags.');
     }
     return pemContent;
 };
@@ -38,7 +42,7 @@ const getPemContent = (req) => {
 // Handles /authorize endpoint to validate authorization and PEM content
 app.post('/execute/authorize', checkToken, (req, res) => {
     try {
-        const pemContent = getPemContent(req);  // Validate PEM content
+        const pemContent = getPemContent(req);  // Validate PEM content from headers
         res.json({ message: "Authorization Successful" });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -52,7 +56,7 @@ const getTokenDecimals = async (tokenTicker) => {
     const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
     const response = await fetch(apiUrl);
     if (!response.ok) {
-        throw new Error(`Failed to fetch token info: ${response.statusText}`);
+        throw new Error(`Failed to fetch token info for ${tokenTicker}: ${response.statusText}`);
     }
     const tokenInfo = await response.json();
     return tokenInfo.decimals || 0;  // Default to 0 if decimals not found
@@ -64,10 +68,10 @@ const convertAmountToBlockchainValue = (amount, decimals) => {
     return new BigNumber(amount).multipliedBy(factor).toFixed(0);  // Convert to integer string
 };
 
-// Function to send ESDT tokens
+// Function to send ESDT tokens with improved error handling
 const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from headers
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
@@ -101,6 +105,9 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
         return { txHash: txHash.toString() };
     } catch (error) {
+        if (error.message.includes('insufficient')) {
+            throw new Error('Insufficient funds for this transaction.');
+        }
         console.error('Error sending ESDT transaction:', error);
         throw new Error('Transaction failed');
     }
@@ -110,7 +117,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const pemContent = getPemContent(req);  // Get the PEM content from the headers
         const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
         res.json({ result });
     } catch (error) {
@@ -126,10 +133,10 @@ const getTokenDecimalsSFT = async () => {
     return 0;
 };
 
-// Function to send SFT tokens
+// Function to send SFT tokens with improved error handling
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from headers
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
@@ -163,6 +170,9 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
         const txHash = await provider.sendTransaction(tx);
         return { txHash: txHash.toString() };
     } catch (error) {
+        if (error.message.includes('insufficient')) {
+            throw new Error('Insufficient funds for this transaction.');
+        }
         console.error('Error sending SFT transaction:', error);
         throw new Error('Transaction failed');
     }
@@ -172,7 +182,7 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
 app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker, tokenNonce } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const pemContent = getPemContent(req);  // Get the PEM content from the headers
         const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
         res.json({ result });
     } catch (error) {
