@@ -1,7 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const fetch = require('node-fetch');
-const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
+const { Address, Token, TokenTransfer, Transaction, TransactionPayload, GasLimit, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
 const BigNumber = require('bignumber.js');
@@ -28,20 +27,13 @@ const checkToken = (req, res, next) => {
 // Function to validate and return the PEM content from the request body
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
-    
-    // Check if the content is already properly formatted and skip reformatting
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
         throw new Error('Invalid PEM content');
     }
-    
-    // If the content already has "\n", skip reformatting
     if (pemContent.includes('\n')) {
         return pemContent;
     }
-
-    // Reformat the PEM content by inserting new lines
-    const formattedPem = pemContent.replace(/\\n/g, '\n');
-    return formattedPem;
+    return pemContent.replace(/\\n/g, '\n');
 };
 
 // --------------- Authorization Endpoint --------------- //
@@ -204,15 +196,20 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const nonce = accountOnNetwork.nonce;
 
+        // Construct the ESDTNFTTransfer transaction payload
+        const payload = new TransactionPayload(
+            `ESDTNFTTransfer@${Buffer.from(tokenId).toString('hex')}@${tokenNonce.toString(16)}@01`
+        );
+
         // Create a transaction for NFT transfer
         const tx = new Transaction({
             nonce: nonce,
             receiver: receiverAddress,
             sender: senderAddress,
-            value: 0, // No value since it's an NFT transfer
-            data: `ESDTNFTTransfer@${Buffer.from(tokenId).toString('hex')}@${tokenNonce.toString(16)}@01`, // Hex encoded data for the NFT transfer
-            gasLimit: 700000n, // Manually set gas limit
+            gasLimit: new GasLimit(700000),
             chainID: "1", // Mainnet chain ID
+            value: 0, // No value since it's an NFT transfer
+            data: payload
         });
 
         await signer.sign(tx);  // Sign the transaction
@@ -228,6 +225,7 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
 app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, tokenId, tokenNonce } = req.body;
+        const pemContent = getPemContent(req);  //
         const pemContent = getPemContent(req);  // Get the PEM content from the request body
         const result = await sendNftToken(pemContent, recipient, tokenId, tokenNonce);
         res.json({ result });
