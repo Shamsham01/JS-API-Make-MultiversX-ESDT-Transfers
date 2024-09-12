@@ -194,39 +194,32 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
 // --------------- NFT Transfer Logic --------------- //
 
 // Function to send NFT tokens
-const sendNftToken = async (pemContent, recipient, tokenId, nonce) => {
+const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
     try {
         const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
-        // Fetch account details to get the nonce
+        // Fetch account details from network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
-        const accountNonce = accountOnNetwork.nonce;
+        const nonce = accountOnNetwork.nonce;
 
-        // Create a factory for NFT transfer transactions
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
-
-        const tx = factory.createTransactionForESDTNFTTransfer({
-            sender: senderAddress,
+        // Create a transaction for NFT transfer
+        const tx = new Transaction({
+            nonce: nonce,
             receiver: receiverAddress,
-            tokenTransfers: [
-                new TokenTransfer({
-                    token: new Token({ identifier: tokenId, nonce: BigInt(nonce) }),
-                    amount: 1n  // NFT transfers are typically 1
-                })
-            ]
+            sender: senderAddress,
+            value: 0, // No value since it's an NFT transfer
+            data: `ESDTNFTTransfer@${Buffer.from(tokenId).toString('hex')}@${tokenNonce.toString(16)}@01`, // Hex encoded data for the NFT transfer
+            gasLimit: 700000n, // Manually set gas limit
+            chainID: "1", // Mainnet chain ID
         });
 
-        tx.nonce = accountNonce;  // Set transaction nonce
-        tx.gasLimit = 600000n;  // Manually set gas limit as BigInt
-
         await signer.sign(tx);  // Sign the transaction
-        const txHash = await provider.sendTransaction(tx);
+        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
         return { txHash: txHash.toString() };
     } catch (error) {
-        console.error('Error sending NFT transaction:', error        );
+        console.error('Error sending NFT transaction:', error);
         throw new Error('Transaction failed');
     }
 };
