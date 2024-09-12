@@ -225,7 +225,6 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
 app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, tokenId, tokenNonce } = req.body;
-        const pemContent = getPemContent(req);  //
         const pemContent = getPemContent(req);  // Get the PEM content from the request body
         const result = await sendNftToken(pemContent, recipient, tokenId, tokenNonce);
         res.json({ result });
