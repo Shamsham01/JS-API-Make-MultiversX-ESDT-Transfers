@@ -191,6 +191,59 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
+// --------------- NFT Transfer Logic --------------- //
+
+// Function to send NFT tokens
+const sendNftToken = async (pemContent, recipient, tokenId, nonce) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        // Fetch account details to get the nonce
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const accountNonce = accountOnNetwork.nonce;
+
+        // Create a factory for NFT transfer transactions
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = factory.createTransactionForESDTNFTTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            tokenTransfers: [
+                new TokenTransfer({
+                    token: new Token({ identifier: tokenId, nonce: BigInt(nonce) }),
+                    amount: 1n  // NFT transfers are typically 1
+                })
+            ]
+        });
+
+        tx.nonce = accountNonce;  // Set transaction nonce
+        tx.gasLimit = 600000n;  // Manually set gas limit as BigInt
+
+        await signer.sign(tx);  // Sign the transaction
+        const txHash = await provider.sendTransaction(tx);
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending NFT transaction:', error        );
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for NFT transfers
+app.post('/execute/nftTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, tokenId, tokenNonce } = req.body;
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await sendNftToken(pemContent, recipient, tokenId, tokenNonce);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing NFT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
