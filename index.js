@@ -1,6 +1,113 @@
+{
+    "baseUrl": "https://javascript-api-hbxq.onrender.com/execute",
+    "headers": {
+        "Authorization": "Bearer {{connection.apiKey}}",  // Authorization header with API Key from the connection
+        "Content-Type": "application/json"
+    },
+    "response": {
+        "error": {
+            "message": "[{{statusCode}}] {{body.error}}"  // Error handling for failed requests
+        }
+    },
+    "log": {
+        "sanitize": [
+            "request.headers.authorization"  // Hide Authorization header in logs for security
+        ]
+    }
+
+
+Connection:
+
+{
+    "url": "https://javascript-api-hbxq.onrender.com/execute/authorize",
+    "method": "POST",
+    "headers": {
+        "Authorization": "Bearer {{connection.apiKey}}",  // Use the API Key provided by the user
+        "Content-Type": "application/json"
+    },
+    "qs": {},
+    "body": {
+        "walletPem": "{{parameters.pemContent}}"  // This should contain the PEM file content.
+    },
+    "response": {
+        "output": "{{body}}"
+    }
+}
+
+
+Connection Parameters:
+
+[
+    {
+        "name": "apiKey",
+        "type": "password",
+        "label": "API Key",
+        "required": true
+    },
+    {
+        "name": "pemContent",
+        "type": "text",  // or "password", depending on security needs
+        "label": "PEM Content",
+        "required": true,
+        "help": "Paste your wallet PEM private key content here."
+    }
+]
+
+
+ESDT Module:
+
+{
+    "url": "/esdtTransfer",
+    "method": "POST",
+    "headers": {
+        "Authorization": "Bearer {{connection.apiKey}}",  // Use the API Key from the connection
+        "Content-Type": "application/json"
+    },
+    "qs": {},
+    "body": {
+        "recipient": "{{parameters.recipient}}",
+        "amount": "{{parameters.amount}}",
+        "tokenTicker": "{{parameters.tokenTicker}}",
+        "walletPem": "{{connection.pemContent}}"  // Ensure PEM content is passed from connection
+    },
+    "response": {
+        "output": {
+            "txHash": "{{body.result.txHash}}"
+        }
+    }
+}
+
+
+ESDT Mappable Parameters
+
+[
+    {
+        "name": "recipient",
+        "type": "text",
+        "label": "Recipient Address",
+        "required": true
+    },
+    {
+        "name": "amount",
+        "type": "number",
+        "label": "Amount",
+        "required": true
+    },
+    {
+        "name": "tokenTicker",
+        "type": "text",
+        "label": "Token Ticker",
+        "required": true
+    }
+]
+
+
+This is setup to work with this index.js code:
+
 const express = require('express');
 const bodyParser = require('body-parser');
-const { Address, Token, TokenTransfer, Transaction, TransactionPayload, GasLimit, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
+const fetch = require('node-fetch');
+const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
 const BigNumber = require('bignumber.js');
@@ -27,13 +134,20 @@ const checkToken = (req, res, next) => {
 // Function to validate and return the PEM content from the request body
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
+    
+    // Check if the content is already properly formatted and skip reformatting
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
         throw new Error('Invalid PEM content');
     }
+    
+    // If the content already has "\n", skip reformatting
     if (pemContent.includes('\n')) {
         return pemContent;
     }
-    return pemContent.replace(/\\n/g, '\n');
+
+    // Reformat the PEM content by inserting new lines
+    const formattedPem = pemContent.replace(/\\n/g, '\n');
+    return formattedPem;
 };
 
 // --------------- Authorization Endpoint --------------- //
@@ -179,57 +293,6 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
         res.json({ result });
     } catch (error) {
         console.error('Error executing SFT transaction:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// --------------- NFT Transfer Logic --------------- //
-
-// Function to send NFT tokens
-const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
-    try {
-        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
-        const senderAddress = signer.getAddress();
-        const receiverAddress = new Address(recipient);
-
-        // Fetch account details from network to get the nonce
-        const accountOnNetwork = await provider.getAccount(senderAddress);
-        const nonce = accountOnNetwork.nonce;
-
-        // Construct the ESDTNFTTransfer transaction payload
-        const payload = new TransactionPayload(
-            `ESDTNFTTransfer@${Buffer.from(tokenId).toString('hex')}@${tokenNonce.toString(16)}@01`
-        );
-
-        // Create a transaction for NFT transfer
-        const tx = new Transaction({
-            nonce: nonce,
-            receiver: receiverAddress,
-            sender: senderAddress,
-            gasLimit: new GasLimit(700000),
-            chainID: "1", // Mainnet chain ID
-            value: 0, // No value since it's an NFT transfer
-            data: payload
-        });
-
-        await signer.sign(tx);  // Sign the transaction
-        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
-        return { txHash: txHash.toString() };
-    } catch (error) {
-        console.error('Error sending NFT transaction:', error);
-        throw new Error('Transaction failed');
-    }
-};
-
-// Route for NFT transfers
-app.post('/execute/nftTransfer', checkToken, async (req, res) => {
-    try {
-        const { recipient, tokenId, tokenNonce } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
-        const result = await sendNftToken(pemContent, recipient, tokenId, tokenNonce);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing NFT transaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
