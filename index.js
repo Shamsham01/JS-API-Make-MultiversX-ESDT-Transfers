@@ -204,7 +204,7 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const nonce = accountOnNetwork.nonce;
 
-        // Log important information for debugging
+        // Log the token details for debugging
         console.log(`Sending NFT: tokenId=${tokenId}, tokenNonce=${tokenNonce}, recipient=${recipient}`);
 
         // Construct the ESDTNFTTransfer transaction payload
@@ -217,38 +217,17 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
             nonce: nonce,
             receiver: receiverAddress,
             sender: senderAddress,
-            gasLimit: new GasLimit(700000),
-            chainID: "1", // Mainnet chain ID
-            value: 0, // No value since it's an NFT transfer
+            gasLimit: 700000n,  // Set gas limit as a BigInt
+            chainID: "1",  // Mainnet chain ID
+            value: 0,  // No value since it's an NFT transfer
             data: payload
         });
 
         await signer.sign(tx);  // Sign the transaction
-        const txHash = await provider.sendTransaction(tx        );  // Send the transaction to the network
-
-        // Log the transaction hash for debugging
-        console.log(`NFT Transfer Transaction Hash: ${txHash.toString()}`);
+        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending NFT transaction:', error);
         throw new Error('Transaction failed');
     }
 };
-
-// Route for NFT transfers
-app.post('/execute/nftTransfer', checkToken, async (req, res) => {
-    try {
-        const { recipient, tokenId, tokenNonce } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
-        const result = await sendNftToken(pemContent, recipient, tokenId, tokenNonce);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing NFT transaction:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Start the server
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
