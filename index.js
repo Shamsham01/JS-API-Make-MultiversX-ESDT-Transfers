@@ -1,7 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
-const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
+const { Address, Token, TokenTransfer, Transaction, TransactionPayload, GasLimit, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
 const BigNumber = require('bignumber.js');
@@ -187,6 +187,63 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
         res.json({ result });
     } catch (error) {
         console.error('Error executing SFT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --------------- NFT Transfer Logic --------------- //
+
+// Function to send NFT tokens
+const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        // Fetch account details from network to get the nonce
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const nonce = accountOnNetwork.nonce;
+
+        // Log important information for debugging
+        console.log(`Sending NFT: tokenId=${tokenId}, tokenNonce=${tokenNonce}, recipient=${recipient}`);
+
+        // Construct the ESDTNFTTransfer transaction payload
+        const payload = new TransactionPayload(
+            `ESDTNFTTransfer@${Buffer.from(tokenId).toString('hex')}@${tokenNonce.toString(16)}@01`
+        );
+
+        // Create a transaction for NFT transfer
+        const tx = new Transaction({
+            nonce: nonce,
+            receiver: receiverAddress,
+            sender: senderAddress,
+            gasLimit: new GasLimit(700000),
+            chainID: "1", // Mainnet chain ID
+            value: 0, // No value since it's an NFT transfer
+            data: payload
+        });
+
+        await signer.sign(tx);  // Sign the transaction
+        const txHash = await provider.sendTransaction(tx        );  // Send the transaction to the network
+
+        // Log the transaction hash for debugging
+        console.log(`NFT Transfer Transaction Hash: ${txHash.toString()}`);
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending NFT transaction:', error);
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for NFT transfers
+app.post('/execute/nftTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, tokenId, tokenNonce } = req.body;
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await sendNftToken(pemContent, recipient, tokenId, tokenNonce);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing NFT transaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
