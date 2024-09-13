@@ -52,6 +52,11 @@ app.post('/execute/authorize', checkToken, (req, res) => {
     }
 });
 
+// Function to convert EGLD to WEI (1 EGLD = 10^18 WEI)
+const convertEGLDToWEI = (amount) => {
+    return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);  // Convert to string in WEI
+};
+
 // Function to send EGLD (native token)
 const sendEgld = async (pemContent, recipient, amount) => {
     try {
@@ -63,6 +68,9 @@ const sendEgld = async (pemContent, recipient, amount) => {
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
+        // Convert human-readable EGLD amount to WEI
+        const amountInWEI = convertEGLDToWEI(amount);
+
         // Create a factory for EGLD transfer transactions
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" }); // Make sure chainID matches the network (mainnet = 1, devnet = D)
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
@@ -71,7 +79,7 @@ const sendEgld = async (pemContent, recipient, amount) => {
         const tx = factory.createTransactionForNativeTokenTransfer({
             sender: senderAddress,
             receiver: receiverAddress,
-            nativeAmount: BigInt(amount)  // Amount is in WEI, so use BigInt
+            nativeAmount: BigInt(amountInWEI)  // Amount is now in WEI
         });
 
         tx.nonce = senderNonce;  // Set transaction nonce
@@ -91,7 +99,7 @@ app.post('/execute/egldTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount } = req.body;
         const pemContent = getPemContent(req);  // Get the PEM content from the request body
-        const result = await sendEgld(pemContent, recipient, amount);
+        const result = await sendEgld(pemContent, recipient, amount);  // Pass the human-readable amount
         res.json({ result });
     } catch (error) {
         console.error('Error executing EGLD transaction:', error);
