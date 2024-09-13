@@ -137,71 +137,63 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
 
 // --------------- NFT Transfer Logic --------------- //
 // Function to send NFT tokens
-const sendNftToken = async (pemContent, recipient, tokenId) => {
-  try {
-    console.log(`Sending NFT: tokenId=${tokenId}, recipient=${recipient}`);
+const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
 
-    // Step 1: Fetch NFT details (nonce and ticker)
-    const nftOnNetwork = await axios.get(`https://api.multiversx.com/nfts/${tokenId.trim()}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    });
+        // Fetch account details from network to get the nonce
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const nonce = accountOnNetwork.nonce;
 
-    const nonce = nftOnNetwork?.data?.nonce;
-    const collectionTicker = nftOnNetwork?.data?.ticker;
+        // Fetch NFT details from MultiversX API
+        const nftOnNetwork = await axios.get(`https://api.multiversx.com/nfts/${tokenId}-${tokenNonce}`, {
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+            },
+        });
 
-    if (nonce === undefined || collectionTicker === undefined) {
-      throw new Error('Unable to retrieve NFT data. Check tokenId or network configuration.');
+        // Construct the ESDTNFTTransfer transaction payload
+        const payload = new TransactionPayload(
+            `ESDTNFTTransfer@${Buffer.from(tokenId).toString('hex')}@${tokenNonce.toString(16)}@01`
+        );
+
+        // Create a transaction for NFT transfer
+        const tx = new Transaction({
+            nonce: nonce,
+            receiver: receiverAddress,
+            sender: senderAddress,
+            gasLimit: new GasLimit(700000),
+            chainID: "1", // Mainnet chain ID
+            value: 0, // No value since it's an NFT transfer
+            data: payload
+        });
+
+        await signer.sign(tx);  // Sign the transaction
+        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending NFT transaction:', error);
+        throw new Error('Transaction failed');
     }
-
-    console.log(`Fetched NFT data: Ticker=${collectionTicker}, Nonce=${nonce}`);
-
-    // Step 2: Create Token Transfer object
-    const transfer = TokenTransfer.nonFungible(collectionTicker, nonce);
-
-    // Step 3: Create transaction using TransferTransactionsFactory
-    const factory = new TransferTransactionsFactory(new GasEstimator());
-
-    const signer = UserSigner.fromPem(pemContent); // Use PEM content from request
-    const senderAddress = signer.getAddress();
-    const receiverAddress = new Address(recipient.trim());
-
-    const tx = factory.createESDTNFTTransfer({
-      tokenTransfer: transfer,
-      nonce,
-      sender: senderAddress,
-      destination: receiverAddress,
-      chainID: '1', // Mainnet chain ID
-    });
-
-    // Step 4: Sign and send the transaction
-    await signer.sign(tx);
-    const txHash = await provider.sendTransaction(tx);
-    console.log('Transaction sent, txHash:', txHash.toString());
-
-    return { txHash: txHash.toString() };
-  } catch (error) {
-    console.error('Error sending NFT transaction:', error);
-    throw new Error('Transaction failed');
-  }
 };
 
 // Route for NFT transfers
 app.post('/execute/nftTransfer', checkToken, async (req, res) => {
-  try {
-    const { recipient, tokenId } = req.body;
-    const pemContent = getPemContent(req); // Get the PEM content from the request body
-    const result = await sendNftToken(pemContent, recipient, tokenId);
-    res.json({ result });
-  } catch (error) {
-    console.error('Error executing NFT transaction:', error);
-    res.status(500).json({ error: error.message });
-  }
+    try {
+        const { recipient, tokenId, tokenNonce } = req.body;
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await sendNftToken(pemContent, recipient, tokenId, tokenNonce);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing NFT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Start the server
 app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
