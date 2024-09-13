@@ -147,18 +147,13 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const nonce = accountOnNetwork.nonce;
 
-        // Fetch NFT details from MultiversX API
-        const nftOnNetwork = await axios.get(`https://api.multiversx.com/nfts/${tokenId}-${tokenNonce}`, {
+        // Fetch NFT details from MultiversX API (using only the tokenId)
+        const nftOnNetwork = await axios.get(`https://api.multiversx.com/nfts/${tokenId}`, {
             headers: {
                 'Content-Type': 'application/json',
                 Accept: 'application/json',
             },
         });
-
-        // Check if NFT details were successfully retrieved
-        if (!nftOnNetwork || !nftOnNetwork.data) {
-            throw new Error("Failed to retrieve NFT details from the network");
-        }
 
         // Construct the ESDTNFTTransfer transaction payload
         const payload = new TransactionPayload(
@@ -170,7 +165,7 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
             nonce: nonce,
             receiver: receiverAddress,
             sender: senderAddress,
-            gasLimit: GasLimit.forTransfer(700000),  // Corrected GasLimit instantiation
+            gasLimit: new GasLimit(700000),
             chainID: "1", // Mainnet chain ID
             value: 0, // No value since it's an NFT transfer
             data: payload
