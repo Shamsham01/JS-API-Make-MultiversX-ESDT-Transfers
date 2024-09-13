@@ -52,6 +52,53 @@ app.post('/execute/authorize', checkToken, (req, res) => {
     }
 });
 
+// Function to send EGLD (native token)
+const sendEgld = async (pemContent, recipient, amount) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        // Fetch account details from the network to get the nonce
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const senderNonce = accountOnNetwork.nonce;
+
+        // Create a factory for EGLD transfer transactions
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" }); // Make sure chainID matches the network (mainnet = 1, devnet = D)
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        // Create the EGLD transfer transaction
+        const tx = factory.createTransactionForNativeTokenTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            nativeAmount: BigInt(amount)  // Amount is in WEI, so use BigInt
+        });
+
+        tx.nonce = senderNonce;  // Set transaction nonce
+        tx.gasLimit = 50000n;  // EGLD transfers have lower gas limit
+
+        await signer.sign(tx);  // Sign the transaction
+        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending EGLD transaction:', error);
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for EGLD transfers
+app.post('/execute/egldTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, amount } = req.body;
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await sendEgld(pemContent, recipient, amount);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing EGLD transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --------------- ESDT Transfer Logic --------------- //
 
 // Function to get token decimals for ESDT transfers
