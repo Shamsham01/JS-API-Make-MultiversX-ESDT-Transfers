@@ -7,7 +7,7 @@ const {
   TokenTransfer,
   TransferTransactionsFactory,
   TransactionsFactoryConfig,
-  GasEstimator,
+  GasLimit,
 } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
@@ -155,6 +155,11 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
             },
         });
 
+        // Check if NFT details were successfully retrieved
+        if (!nftOnNetwork || !nftOnNetwork.data) {
+            throw new Error("Failed to retrieve NFT details from the network");
+        }
+
         // Construct the ESDTNFTTransfer transaction payload
         const payload = new TransactionPayload(
             `ESDTNFTTransfer@${Buffer.from(tokenId).toString('hex')}@${tokenNonce.toString(16)}@01`
@@ -165,7 +170,7 @@ const sendNftToken = async (pemContent, recipient, tokenId, tokenNonce) => {
             nonce: nonce,
             receiver: receiverAddress,
             sender: senderAddress,
-            gasLimit: new GasLimit(700000),
+            gasLimit: GasLimit.forTransfer(700000),  // Corrected GasLimit instantiation
             chainID: "1", // Mainnet chain ID
             value: 0, // No value since it's an NFT transfer
             data: payload
