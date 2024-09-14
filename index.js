@@ -1,7 +1,7 @@
 const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
-const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig } = require('@multiversx/sdk-core');
+const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, Transaction, TransactionPayload } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
 const BigNumber = require('bignumber.js');
@@ -299,23 +299,22 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        // Build the transaction object
-        const tx = {
-            nonce: senderNonce,  // Set transaction nonce
-            receiver: new Address(scAddress),  // Smart contract address
-            sender: senderAddress,  // Sender's address
-            value: 0,  // Amount of EGLD being transferred (usually 0 for SC calls)
-            gasLimit: 15000000,  // Gas limit
-            data: dataField,  // Data field (endpoint and parameters)
-            chainID: '1',  // Mainnet chain ID (use 'D' for devnet)
-            version: 1,  // Transaction version
-        };
+        // Create a transaction object
+        const tx = new Transaction({
+            nonce: senderNonce,
+            receiver: new Address(scAddress),
+            sender: senderAddress,
+            value: '0',  // Sending 0 EGLD
+            gasLimit: 15000000,  // Gas limit for smart contract call
+            data: new TransactionPayload(dataField),  // Payload with the endpoint and parameters
+            chainID: '1',  // Mainnet chain ID
+        });
 
         // Sign the transaction
-        const signedTx = await signer.sign(tx);
+        await signer.sign(tx);
 
         // Send the transaction
-        const txHash = await provider.sendTransaction(signedTx);
+        const txHash = await provider.sendTransaction(tx);
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error executing smart contract call:', error);
@@ -328,32 +327,6 @@ app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
         const pemContent = getPemContent(req);  // Get the PEM content from the request body
-        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing smart contract call:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Route for smart contract call
-app.post('/execute/scCall', checkToken, async (req, res) => {
-    try {
-        const { scAddress, endpoint, receiver, qty } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
-        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing smart contract call:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// Route for Smart Contract calls
-app.post('/execute/scCall', checkToken, async (req, res) => {
-    try {
-        const { scAddress, endpoint, receiver, qty } = req.body;
-        const pemContent = getPemContent(req);
         const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
         res.json({ result });
     } catch (error) {
