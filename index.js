@@ -244,8 +244,8 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-               const factory = new TransferTransactionsFactory({ config: factoryConfig });
+        const factoryConfig = new TransactionsFactoryConfig({ chainID:"1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
         // Create the NFT transfer transaction
         const tx = factory.createTransactionForESDTTokenTransfer({
@@ -292,8 +292,12 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
         const senderAddress = signer.getAddress();
 
+        // Convert receiver address from Bech32 to hex using MultiversX SDK's Address class
+        const receiverAddress = new Address(receiver);
+        const receiverHex = receiverAddress.hex();
+
         // Create the payload for the smart contract interaction (data field)
-        const dataField = `${endpoint}@${Buffer.from(receiver, 'utf-8').toString('hex')}@${qty.toString(16).padStart(2, '0')}`;
+        const dataField = `${endpoint}@${receiverHex}@${qty.toString(16).padStart(2, '0')}`;
 
         // Fetch account details from the network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
