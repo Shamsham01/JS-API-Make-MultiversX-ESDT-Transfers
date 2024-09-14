@@ -42,7 +42,6 @@ const getPemContent = (req) => {
 };
 
 // --------------- Authorization Endpoint --------------- //
-// Handles /authorize endpoint to validate authorization and PEM content
 app.post('/execute/authorize', checkToken, (req, res) => {
     try {
         const pemContent = getPemContent(req);  // Validate PEM content
@@ -64,29 +63,25 @@ const sendEgld = async (pemContent, recipient, amount) => {
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
-        // Fetch account details from the network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        // Convert human-readable EGLD amount to WEI
         const amountInWEI = convertEGLDToWEI(amount);
 
-        // Create a factory for EGLD transfer transactions
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" }); // Make sure chainID matches the network (mainnet = 1, devnet = D)
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Create the EGLD transfer transaction
         const tx = factory.createTransactionForNativeTokenTransfer({
             sender: senderAddress,
             receiver: receiverAddress,
-            nativeAmount: BigInt(amountInWEI)  // Amount is now in WEI
+            nativeAmount: BigInt(amountInWEI)
         });
 
-        tx.nonce = senderNonce;  // Set transaction nonce
-        tx.gasLimit = 50000n;  // EGLD transfers have lower gas limit
+        tx.nonce = senderNonce;
+        tx.gasLimit = 50000n;
 
-        await signer.sign(tx);  // Sign the transaction
-        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending EGLD transaction:', error);
@@ -98,8 +93,8 @@ const sendEgld = async (pemContent, recipient, amount) => {
 app.post('/execute/egldTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
-        const result = await sendEgld(pemContent, recipient, amount);  // Pass the human-readable amount
+        const pemContent = getPemContent(req);
+        const result = await sendEgld(pemContent, recipient, amount);
         res.json({ result });
     } catch (error) {
         console.error('Error executing EGLD transaction:', error);
@@ -117,31 +112,28 @@ const getTokenDecimals = async (tokenTicker) => {
         throw new Error(`Failed to fetch token info: ${response.statusText}`);
     }
     const tokenInfo = await response.json();
-    return tokenInfo.decimals || 0;  // Default to 0 if decimals not found
+    return tokenInfo.decimals || 0;
 };
 
 // Function to convert token amount for ESDT based on decimals
 const convertAmountToBlockchainValue = (amount, decimals) => {
-    const factor = new BigNumber(10).pow(decimals);  // Factor = 10^decimals
-    return new BigNumber(amount).multipliedBy(factor).toFixed(0);  // Convert to integer string
+    const factor = new BigNumber(10).pow(decimals);
+    return new BigNumber(amount).multipliedBy(factor).toFixed(0);
 };
 
 // Function to send ESDT tokens
 const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
-        // Fetch account details from network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const nonce = accountOnNetwork.nonce;
 
-        // Fetch token decimals and convert amount
         const decimals = await getTokenDecimals(tokenTicker);
         const convertedAmount = convertAmountToBlockchainValue(amount, decimals);
 
-        // Create a factory for ESDT token transfer transactions
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
@@ -151,16 +143,16 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenTicker }),
-                    amount: BigInt(convertedAmount)  // Handle token amount as BigInt
+                    amount: BigInt(convertedAmount)
                 })
             ]
         });
 
-        tx.nonce = nonce;  // Set transaction nonce
-        tx.gasLimit = 500000n;  // Set gas limit as BigInt
+        tx.nonce = nonce;
+        tx.gasLimit = 500000n;
 
-        await signer.sign(tx);  // Sign the transaction
-        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending ESDT transaction:', error);
@@ -172,7 +164,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const pemContent = getPemContent(req);
         const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
         res.json({ result });
     } catch (error) {
@@ -191,19 +183,16 @@ const getTokenDecimalsSFT = async () => {
 // Function to send SFT tokens
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
-        // Fetch account details to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
-        // Get token decimals (for SFTs it's typically 0)
         const decimals = await getTokenDecimalsSFT();
-        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);  // Ensure amounts are BigInts
+        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
 
-        // Create a factory for SFT transfer transactions
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
@@ -218,10 +207,10 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
             ]
         });
 
-        tx.nonce = accountNonce;  // Set transaction nonce
-        tx.gasLimit = 500000n;  // Manually set gas limit as BigInt
+        tx.nonce = accountNonce;
+        tx.gasLimit = 500000n;
 
-        await signer.sign(tx);  // Sign the transaction
+        await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
         return { txHash: txHash.toString() };
     } catch (error) {
@@ -234,7 +223,7 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
 app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker, tokenNonce } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const pemContent = getPemContent(req);
         const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
         res.json({ result });
     } catch (error) {
@@ -248,17 +237,15 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
 // Function to send NFT tokens
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, amount) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
-        // Fetch account details from network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        // Create a factory for NFT transfer transactions
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" }); // Make sure chainID matches the network (mainnet = 1, devnet = D)
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+               const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
         // Create the NFT transfer transaction
         const tx = factory.createTransactionForESDTTokenTransfer({
@@ -288,11 +275,62 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
 app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, tokenNonce, amount } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const pemContent = getPemContent(req);
         const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce, amount);
         res.json({ result });
     } catch (error) {
         console.error('Error executing NFT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --------------- Smart Contract Call Logic --------------- //
+
+// Function to execute a smart contract call
+const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);
+        const senderAddress = signer.getAddress();
+        const smartContractAddress = new Address(scAddress);
+        const receiverAddress = new Address(receiver);
+
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const senderNonce = accountOnNetwork.nonce;
+
+        // Prepare the data field for the smart contract call
+        const dataField = `${endpoint}@${Buffer.from(receiverAddress.bech32()).toString('hex')}@${qty.toString(16).padStart(2, '0')}`;
+
+        // Create the SC call transaction
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = factory.createTransaction({
+            sender: senderAddress,
+            receiver: smartContractAddress,
+            data: dataField
+        });
+
+        tx.nonce = senderNonce;  // Set transaction nonce
+        tx.gasLimit = 15000000n;  // Adjust gas limit for the SC call
+
+        await signer.sign(tx);  // Sign the transaction
+        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error executing smart contract call:', error);
+        throw new Error('Smart contract call failed');
+    }
+};
+
+// Route for Smart Contract calls
+app.post('/execute/scCall', checkToken, async (req, res) => {
+    try {
+        const { scAddress, endpoint, receiver, qty } = req.body;
+        const pemContent = getPemContent(req);
+        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing smart contract call:', error);
         res.status(500).json({ error: error.message });
     }
 });
