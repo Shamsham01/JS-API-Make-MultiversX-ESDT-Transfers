@@ -299,28 +299,42 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        // Create the transaction for the smart contract call
+        // Build the transaction object
         const tx = {
-            receiver: new Address(scAddress),
-            sender: senderAddress,
-            value: 0n,  // Usually, no EGLD is transferred for smart contract calls
-            gasLimit: 15000000n,  // Gas limit for smart contract call
-            data: dataField,
-            chainID: '1',  // Ensure this is mainnet ('1') or devnet ('D')
-            nonce: senderNonce
+            nonce: senderNonce,  // Set transaction nonce
+            receiver: new Address(scAddress),  // Smart contract address
+            sender: senderAddress,  // Sender's address
+            value: 0,  // Amount of EGLD being transferred (usually 0 for SC calls)
+            gasLimit: 15000000,  // Gas limit
+            data: dataField,  // Data field (endpoint and parameters)
+            chainID: '1',  // Mainnet chain ID (use 'D' for devnet)
+            version: 1,  // Transaction version
         };
 
         // Sign the transaction
-        await signer.sign(tx);
+        const signedTx = await signer.sign(tx);
 
         // Send the transaction
-        const txHash = await provider.sendTransaction(tx);
+        const txHash = await provider.sendTransaction(signedTx);
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error executing smart contract call:', error);
         throw new Error('Smart contract call failed');
     }
 };
+
+// Route for smart contract call
+app.post('/execute/scCall', checkToken, async (req, res) => {
+    try {
+        const { scAddress, endpoint, receiver, qty } = req.body;
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing smart contract call:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
