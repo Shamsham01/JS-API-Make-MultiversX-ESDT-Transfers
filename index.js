@@ -289,38 +289,51 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 // Function to execute a smart contract call
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
         const senderAddress = signer.getAddress();
-        const smartContractAddress = new Address(scAddress);
-        const receiverAddress = new Address(receiver);
 
+        // Create the payload for the smart contract interaction (data field)
+        const dataField = `${endpoint}@${Buffer.from(receiver, 'utf-8').toString('hex')}@${qty.toString(16).padStart(2, '0')}`;
+
+        // Fetch account details from the network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        // Prepare the data field for the smart contract call
-        const dataField = `${endpoint}@${Buffer.from(receiverAddress.bech32()).toString('hex')}@${qty.toString(16).padStart(2, '0')}`;
-
-        // Create the SC call transaction
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
-
-        const tx = factory.createTransaction({
+        // Create the transaction for the smart contract call
+        const tx = {
+            receiver: new Address(scAddress),
             sender: senderAddress,
-            receiver: smartContractAddress,
-            data: dataField
-        });
+            value: 0n,  // Usually, no EGLD is transferred for smart contract calls
+            gasLimit: 15000000n,  // Gas limit for smart contract call
+            data: dataField,
+            chainID: '1',  // Ensure this is mainnet ('1') or devnet ('D')
+            nonce: senderNonce
+        };
 
-        tx.nonce = senderNonce;  // Set transaction nonce
-        tx.gasLimit = 15000000n;  // Adjust gas limit for the SC call
+        // Sign the transaction
+        await signer.sign(tx);
 
-        await signer.sign(tx);  // Sign the transaction
-        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+        // Send the transaction
+        const txHash = await provider.sendTransaction(tx);
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error executing smart contract call:', error);
         throw new Error('Smart contract call failed');
     }
 };
+
+// Route for smart contract call
+app.post('/execute/scCall', checkToken, async (req, res) => {
+    try {
+        const { scAddress, endpoint, receiver, qty } = req.body;
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing smart contract call:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Route for Smart Contract calls
 app.post('/execute/scCall', checkToken, async (req, res) => {
