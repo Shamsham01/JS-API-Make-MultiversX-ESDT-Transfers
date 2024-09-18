@@ -29,16 +29,13 @@ const checkToken = (req, res, next) => {
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
     
+    // Check if the PEM content is in the expected format
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
         throw new Error('Invalid PEM content');
     }
 
-    if (pemContent.includes('\n')) {
-        return pemContent;
-    }
-
-    const formattedPem = pemContent.replace(/\\n/g, '\n');
-    return formattedPem;
+    // The pemContent is passed directly without any modification
+    return pemContent;
 };
 
 // --------------- Authorization Endpoint --------------- //
@@ -173,65 +170,6 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     }
 });
 
-// --------------- SFT Transfer Logic --------------- //
-
-// Function to assume SFTs have 0 decimals
-const getTokenDecimalsSFT = async () => {
-    return 0;
-};
-
-// Function to send SFT tokens
-const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
-    try {
-        const signer = UserSigner.fromPem(pemContent);
-        const senderAddress = signer.getAddress();
-        const receiverAddress = new Address(recipient);
-
-        const accountOnNetwork = await provider.getAccount(senderAddress);
-        const accountNonce = accountOnNetwork.nonce;
-
-        const decimals = await getTokenDecimalsSFT();
-        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
-
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
-
-        const tx = factory.createTransactionForESDTTokenTransfer({
-            sender: senderAddress,
-            receiver: receiverAddress,
-            tokenTransfers: [
-                new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
-                    amount: adjustedAmount
-                })
-            ]
-        });
-
-        tx.nonce = accountNonce;
-        tx.gasLimit = 500000n;
-
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-        return { txHash: txHash.toString() };
-    } catch (error) {
-        console.error('Error sending SFT transaction:', error);
-        throw new Error('Transaction failed');
-    }
-};
-
-// Route for SFT transfers
-app.post('/execute/sftTransfer', checkToken, async (req, res) => {
-    try {
-        const { recipient, amount, tokenTicker, tokenNonce } = req.body;
-        const pemContent = getPemContent(req);
-        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing SFT transaction:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // --------------- NFT Transfer Logic --------------- //
 
 // Function to send NFT tokens
@@ -244,7 +182,7 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        const factoryConfig = new TransactionsFactoryConfig({ chainID:"1" });
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
         // Create the NFT transfer transaction
@@ -259,7 +197,7 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
             ]
         });
 
-        tx.nonce = senderNonce;  // Set transaction nonce
+        tx.nonce = senderNonce;
         tx.gasLimit = 500000n;  // Adjust gas limit for NFT transactions
 
         await signer.sign(tx);  // Sign the transaction
@@ -290,7 +228,7 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
-        const senderAddress = signer.getAddress();
+        const senderAddress =        signer.getAddress();
 
         // Convert receiver address from Bech32 to hex using MultiversX SDK's Address class
         const receiverAddress = new Address(receiver);
