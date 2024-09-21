@@ -222,6 +222,66 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     }
 });
 
+// --------------- SFT Transfer Logic --------------- //
+
+// Function to assume SFTs have 0 decimals
+const getTokenDecimalsSFT = async () => {
+    return 0;  // SFT tokens typically have 0 decimals
+};
+
+// Function to send SFT tokens
+const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const accountNonce = accountOnNetwork.nonce;
+
+        const decimals = await getTokenDecimalsSFT();
+        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
+
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = factory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            tokenTransfers: [
+                new TokenTransfer({
+                    token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
+                    amount: adjustedAmount
+                })
+            ]
+        });
+
+        tx.nonce = accountNonce;
+        tx.gasLimit = 500000n;
+
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending SFT transaction:', error);
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for SFT transfers
+app.post('/execute/sftTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, amount, tokenTicker, tokenNonce } = req.body;
+        const pemContent = getPemContent(req);
+        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing SFT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 // --------------- Smart Contract Call Logic --------------- //
 
 // Function to execute a smart contract call
