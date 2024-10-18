@@ -198,7 +198,7 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         });
 
         tx.nonce = senderNonce;
-        tx.gasLimit = 2000000n;  // Adjust gas limit for NFT transactions
+        tx.gasLimit = 1000000n;  // Adjust gas limit for NFT transactions
 
         await signer.sign(tx);  // Sign the transaction
         const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
@@ -307,7 +307,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
             receiver: new Address(scAddress),
             sender: senderAddress,
             value: '0',  // Sending 0 EGLD
-            gasLimit: 15000000,  // Gas limit for smart contract call
+            gasLimit: 50000000,  // Gas limit for smart contract call
             data: new TransactionPayload(dataField),  // Payload with the endpoint and parameters
             chainID: '1',  // Mainnet chain ID
         });
