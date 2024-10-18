@@ -198,7 +198,7 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         });
 
         tx.nonce = senderNonce;
-        tx.gasLimit = 500000n;  // Adjust gas limit for NFT transactions
+        tx.gasLimit = 1000000n;  // Adjust gas limit for NFT transactions
 
         await signer.sign(tx);  // Sign the transaction
         const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
