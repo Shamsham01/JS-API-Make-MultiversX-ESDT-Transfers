@@ -28,35 +28,20 @@ const checkToken = (req, res, next) => {
 // Function to validate and return the PEM content from the request body
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
+    
+    // Check if the PEM content is in the expected format
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
         throw new Error('Invalid PEM content');
     }
+
+    // The pemContent is passed directly without any modification
     return pemContent;
-};
-
-// --------------- Transaction Confirmation Logic --------------- //
-const checkTransactionStatus = async (txHash, retries = 10, delay = 5000) => {
-    for (let i = 0; i < retries; i++) {
-        const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
-        const response = await fetch(txStatusUrl);
-        const txStatus = await response.json();
-
-        if (txStatus.status === 'success') {
-            return true;
-        } else if (txStatus.status === 'fail') {
-            throw new Error(`Transaction ${txHash} failed.`);
-        }
-
-        await new Promise(resolve => setTimeout(resolve, delay));
-    }
-
-    throw new Error(`Transaction ${txHash} not confirmed after ${retries} retries.`);
 };
 
 // --------------- Authorization Endpoint --------------- //
 app.post('/execute/authorize', checkToken, (req, res) => {
     try {
-        const pemContent = getPemContent(req);
+        const pemContent = getPemContent(req);  // Validate PEM content
         res.json({ message: "Authorization Successful" });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -65,13 +50,13 @@ app.post('/execute/authorize', checkToken, (req, res) => {
 
 // Function to convert EGLD to WEI (1 EGLD = 10^18 WEI)
 const convertEGLDToWEI = (amount) => {
-    return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);
+    return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);  // Convert to string in WEI
 };
 
 // Function to send EGLD (native token)
 const sendEgld = async (pemContent, recipient, amount) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
@@ -94,10 +79,6 @@ const sendEgld = async (pemContent, recipient, amount) => {
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-
-        // Wait for transaction confirmation
-        await checkTransactionStatus(txHash.toString());
-
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending EGLD transaction:', error);
@@ -119,6 +100,8 @@ app.post('/execute/egldTransfer', checkToken, async (req, res) => {
 });
 
 // --------------- ESDT Transfer Logic --------------- //
+
+// Function to get token decimals for ESDT transfers
 const getTokenDecimals = async (tokenTicker) => {
     const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
     const response = await fetch(apiUrl);
@@ -129,6 +112,7 @@ const getTokenDecimals = async (tokenTicker) => {
     return tokenInfo.decimals || 0;
 };
 
+// Function to convert token amount for ESDT based on decimals
 const convertAmountToBlockchainValue = (amount, decimals) => {
     const factor = new BigNumber(10).pow(decimals);
     return new BigNumber(amount).multipliedBy(factor).toFixed(0);
@@ -166,10 +150,6 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-
-        // Wait for transaction confirmation
-        await checkTransactionStatus(txHash.toString());
-
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending ESDT transaction:', error);
@@ -191,6 +171,8 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
 });
 
 // --------------- NFT Transfer Logic --------------- //
+
+// Function to send NFT tokens
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, amount) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -203,6 +185,7 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
+        // Create the NFT transfer transaction
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: receiverAddress,
@@ -215,14 +198,10 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         });
 
         tx.nonce = senderNonce;
-        tx.gasLimit = 1000000n;
+        tx.gasLimit = 1000000n;  // Adjust gas limit for NFT transactions
 
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-
-        // Wait for transaction confirmation
-        await checkTransactionStatus(txHash.toString());
-
+        await signer.sign(tx);  // Sign the transaction
+        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending NFT transaction:', error);
@@ -244,6 +223,8 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 });
 
 // --------------- SFT Transfer Logic --------------- //
+
+// Function to assume SFTs have 0 decimals
 const getTokenDecimalsSFT = async () => {
     return 0;  // SFT tokens typically have 0 decimals
 };
@@ -280,10 +261,6 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-
-        // Wait for transaction confirmation
-        await checkTransactionStatus(txHash.toString());
-
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error sending SFT transaction:', error);
@@ -304,11 +281,14 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
+
 // --------------- Smart Contract Call Logic --------------- //
+
+// Function to execute a smart contract call
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);
-        const senderAddress = signer.getAddress();
+        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const senderAddress =        signer.getAddress();
 
         // Convert receiver address from Bech32 to hex using MultiversX SDK's Address class
         const receiverAddress = new Address(receiver);
@@ -328,8 +308,8 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
             sender: senderAddress,
             value: '0',  // Sending 0 EGLD
             gasLimit: 50000000,  // Gas limit for smart contract call
-            data: new TransactionPayload(dataField),
-            chainID: '1',
+            data: new TransactionPayload(dataField),  // Payload with the endpoint and parameters
+            chainID: '1',  // Mainnet chain ID
         });
 
         // Sign the transaction
@@ -337,10 +317,6 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
 
         // Send the transaction
         const txHash = await provider.sendTransaction(tx);
-
-        // Wait for transaction confirmation
-        await checkTransactionStatus(txHash.toString());
-
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error executing smart contract call:', error);
@@ -352,7 +328,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
-        const pemContent = getPemContent(req);
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
         const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
         res.json({ result });
     } catch (error) {
