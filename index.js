@@ -285,6 +285,7 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
 const estimateGasLimit = (qty) => {
     const baseGas = 15000000;  // Base gas required per NFT
     return baseGas * qty;  // Calculate total gas limit based on quantity
+};
 
 // --------------- Smart Contract Call Logic --------------- //
 
