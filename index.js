@@ -307,7 +307,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
             receiver: new Address(scAddress),
             sender: senderAddress,
             value: '0',  // Sending 0 EGLD
-            gasLimit: 100000000,  // Gas limit for smart contract call
+            gasLimit: 150000000,  // Gas limit for smart contract call
             data: new TransactionPayload(dataField),  // Payload with the endpoint and parameters
             chainID: '1',  // Mainnet chain ID
         });
