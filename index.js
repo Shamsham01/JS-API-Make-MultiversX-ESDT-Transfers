@@ -281,6 +281,10 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
+// Function to estimate gas limit
+const estimateGasLimit = (qty) => {
+    const baseGas = 15000000;  // Base gas required per NFT
+    return baseGas * qty;  // Calculate total gas limit based on quantity
 
 // --------------- Smart Contract Call Logic --------------- //
 
@@ -288,7 +292,7 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
-        const senderAddress =        signer.getAddress();
+        const senderAddress = signer.getAddress();
 
         // Convert receiver address from Bech32 to hex using MultiversX SDK's Address class
         const receiverAddress = new Address(receiver);
@@ -301,13 +305,16 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
+        // Estimate gas limit based on the quantity of NFTs
+        const estimatedGasLimit = estimateGasLimit(qty);
+
         // Create a transaction object
         const tx = new Transaction({
             nonce: senderNonce,
             receiver: new Address(scAddress),
             sender: senderAddress,
             value: '0',  // Sending 0 EGLD
-            gasLimit: 150000000,  // Gas limit for smart contract call
+            gasLimit: BigInt(estimatedGasLimit),  // Dynamic gas limit
             data: new TransactionPayload(dataField),  // Payload with the endpoint and parameters
             chainID: '1',  // Mainnet chain ID
         });
