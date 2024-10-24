@@ -53,6 +53,28 @@ const checkTransactionStatus = async (txHash, retries = 10, delay = 5000) => {
     throw new Error(`Transaction ${txHash} not confirmed after ${retries} retries.`);
 };
 
+// --------------- Helper function for dynamic gas calculation --------------- //
+const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSize = 0) => {
+    let baseGas = 50000n; // Base gas for simple EGLD transactions
+    let multiplier = BigInt(numberOfItems); // For token transfers, NFTs, SFTs
+    let payloadCost = BigInt(payloadSize) * 1500n; // Payload size increases gas
+
+    switch(transactionType) {
+        case 'EGLD':
+            return baseGas; // EGLD transfers are relatively cheap
+        case 'ESDT':
+            return baseGas + (50000n * multiplier); // ESDT requires more gas depending on the number of items
+        case 'NFT':
+            return baseGas + (100000n * multiplier); // NFT transfers require even more gas
+        case 'SFT':
+            return baseGas + (100000n * multiplier); // SFT transfers similar to NFTs
+        case 'SC_CALL':
+            return baseGas + (100000n + payloadCost); // Smart contract calls can be heavy depending on the payload size
+        default:
+            throw new Error("Unknown transaction type");
+    }
+};
+
 // --------------- Authorization Endpoint --------------- //
 app.post('/execute/authorize', checkToken, (req, res) => {
     try {
@@ -68,7 +90,7 @@ const convertEGLDToWEI = (amount) => {
     return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);
 };
 
-// Function to send EGLD (native token)
+// --------------- EGLD Transfer Logic --------------- //
 const sendEgld = async (pemContent, recipient, amount) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -90,7 +112,9 @@ const sendEgld = async (pemContent, recipient, amount) => {
         });
 
         tx.nonce = senderNonce;
-        tx.gasLimit = 50000n;
+
+        // Dynamically calculate the gas limit
+        tx.gasLimit = calculateDynamicGasLimit('EGLD');
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
@@ -134,7 +158,6 @@ const convertAmountToBlockchainValue = (amount, decimals) => {
     return new BigNumber(amount).multipliedBy(factor).toFixed(0);
 };
 
-// Function to send ESDT tokens
 const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -162,12 +185,13 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         });
 
         tx.nonce = nonce;
-        tx.gasLimit = 500000n;
+
+        // Dynamically calculate gas limit for ESDT based on amount
+        tx.gasLimit = calculateDynamicGasLimit('ESDT', amount);
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction confirmation
         await checkTransactionStatus(txHash.toString());
 
         return { txHash: txHash.toString() };
@@ -208,19 +232,20 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
             receiver: receiverAddress,
             tokenTransfers: [
                 new TokenTransfer({
-                    token: new Token({ identifier: tokenIdentifier, nonce: BigInt(tokenNonce) }),  // NFT requires nonce to identify the specific token
+                    token: new Token({ identifier: tokenIdentifier, nonce: BigInt(tokenNonce) }),
                     amount: BigInt(amount)  // Typically amount is 1 for NFTs, but supporting dynamic amount
                 })
             ]
         });
 
         tx.nonce = senderNonce;
-        tx.gasLimit = 1000000n;
+
+        // Dynamically calculate gas limit for NFTs based on the amount
+        tx.gasLimit = calculateDynamicGasLimit('NFT', amount);
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction confirmation
         await checkTransactionStatus(txHash.toString());
 
         return { txHash: txHash.toString() };
@@ -244,11 +269,6 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 });
 
 // --------------- SFT Transfer Logic --------------- //
-const getTokenDecimalsSFT = async () => {
-    return 0;  // SFT tokens typically have 0 decimals
-};
-
-// Function to send SFT tokens
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -257,9 +277,6 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
-
-        const decimals = await getTokenDecimalsSFT();
-        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
@@ -270,18 +287,19 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
-                    amount: adjustedAmount
+                    amount: BigInt(amount)
                 })
             ]
         });
 
         tx.nonce = accountNonce;
-        tx.gasLimit = 500000n;
+
+        // Dynamically calculate gas limit for SFTs based on amount
+        tx.gasLimit = calculateDynamicGasLimit('SFT', amount);
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction confirmation
         await checkTransactionStatus(txHash.toString());
 
         return { txHash: txHash.toString() };
@@ -327,7 +345,8 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
             receiver: new Address(scAddress),
             sender: senderAddress,
             value: '0',  // Sending 0 EGLD
-            gasLimit: 50000000,  // Gas limit for smart contract call
+            // Dynamically calculate gas based on the payload size
+            gasLimit: calculateDynamicGasLimit('SC_CALL', 1, dataField.length),
             data: new TransactionPayload(dataField),
             chainID: '1',
         });
