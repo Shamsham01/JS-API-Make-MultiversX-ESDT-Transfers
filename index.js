@@ -55,7 +55,7 @@ const checkTransactionStatus = async (txHash, retries = 10, delay = 5000) => {
 
 // --------------- Helper function for dynamic gas calculation --------------- //
 const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSize = 0) => {
-    let baseGas = 50000n; // Base gas for simple EGLD transactions
+    let baseGas = 1000000n; // Base gas for simple EGLD transactions
     let multiplier = BigInt(numberOfItems); // For token transfers, NFTs, SFTs
     let payloadCost = BigInt(payloadSize) * 1500n; // Payload size increases gas
 
@@ -63,13 +63,13 @@ const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSiz
         case 'EGLD':
             return baseGas; // EGLD transfers are relatively cheap
         case 'ESDT':
-            return baseGas + (50000n * multiplier); // ESDT requires more gas depending on the number of items
+            return baseGas + (500000n * multiplier); // ESDT requires more gas depending on the number of items
         case 'NFT':
-            return baseGas + (100000n * multiplier); // NFT transfers require even more gas
+            return baseGas + (1000000n * multiplier); // NFT transfers require even more gas
         case 'SFT':
-            return baseGas + (100000n * multiplier); // SFT transfers similar to NFTs
+            return baseGas + (1000000n * multiplier); // SFT transfers similar to NFTs
         case 'SC_CALL':
-            return baseGas + (500000n + payloadCost); // Smart contract calls can be heavy depending on the payload size
+            return baseGas + (5000000n + payloadCost); // Smart contract calls can be heavy depending on the payload size
         default:
             throw new Error("Unknown transaction type");
     }
