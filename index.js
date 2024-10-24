@@ -58,7 +58,7 @@ const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSiz
     const MIN_GAS_LIMIT = 50000n; // Minimum gas limit for any transaction
     const GAS_PER_DATA_BYTE = 1500n; // Gas cost per byte of data
     const ESDT_TRANSFER_FUNCTION_COST = 200000n; // Cost for smart contract function
-    const GAS_PRICE_MODIFIER = 0.01n; // Gas price modifier for smart contracts
+    const GAS_PRICE_MODIFIER = 0.01; // Gas price modifier for smart contracts
 
     let baseGas = MIN_GAS_LIMIT; // Base gas cost for the transaction
     let multiplier = BigInt(numberOfItems); // Multiplier for NFTs, SFTs
