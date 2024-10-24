@@ -69,7 +69,7 @@ const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSiz
         case 'SFT':
             return baseGas + (100000n * multiplier); // SFT transfers similar to NFTs
         case 'SC_CALL':
-            return baseGas + (100000n + payloadCost); // Smart contract calls can be heavy depending on the payload size
+            return baseGas + (500000n + payloadCost); // Smart contract calls can be heavy depending on the payload size
         default:
             throw new Error("Unknown transaction type");
     }
