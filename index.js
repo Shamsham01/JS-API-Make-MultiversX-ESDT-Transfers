@@ -99,24 +99,24 @@ app.post('/execute/egldTransfer', checkToken, async (req, res) => {
     }
 });
 
-// --------------- Dynamic Gas Calculation Functions --------------- //
+// --------------- Gas Calculation Functions --------------- //
 
-// Function to calculate total gas limit for NFTs (5,000,000 gas per asset)
-const calculateNftGasLimit = (nftCount) => {
+// Function to calculate total gas limit for NFTs/scCalls (5,000,000 gas per asset)
+const calculateNftGasLimit = (qty) => {
     const nftBaseGas = 5000000;  // Base gas per NFT/scCall
-    return nftBaseGas * nftCount;
+    return nftBaseGas * qty;
 };
 
 // Function to calculate total gas limit for SFTs (500,000 gas per asset)
-const calculateSftGasLimit = (sftCount) => {
+const calculateSftGasLimit = (qty) => {
     const sftBaseGas = 500000;   // Base gas per SFT
-    return sftBaseGas * sftCount;
+    return sftBaseGas * qty;
 };
 
 // --------------- NFT Transfer Logic --------------- //
 
 // Function to send NFT tokens with dynamic gas limit
-const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, amount, nftCount) => {
+const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, amount, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
@@ -128,8 +128,8 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Calculate total gas limit based on the number of NFTs
-        const gasLimit = BigInt(calculateNftGasLimit(nftCount));
+        // Calculate total gas limit based on qty
+        const gasLimit = BigInt(calculateNftGasLimit(qty));
 
         // Create the NFT transfer transaction
         const tx = factory.createTransactionForESDTTokenTransfer({
@@ -158,9 +158,9 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
 // Route for NFT transfers with dynamic gas calculation
 app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
-        const { recipient, tokenIdentifier, tokenNonce, amount, nftCount } = req.body;
+        const { recipient, tokenIdentifier, tokenNonce, amount, qty } = req.body;
         const pemContent = getPemContent(req);
-        const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce, amount, nftCount);
+        const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce, amount, qty);
         res.json({ result });
     } catch (error) {
         console.error('Error executing NFT transaction:', error);
@@ -171,7 +171,7 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 // --------------- SFT Transfer Logic --------------- //
 
 // Function to send SFT tokens with dynamic gas limit
-const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, sftCount) => {
+const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
@@ -180,14 +180,14 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, s
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
-        const decimals = await getTokenDecimalsSFT();
+        const decimals = 0;  // Assume SFTs have 0 decimals by default
         const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Calculate total gas limit based on the number of SFTs
-        const gasLimit = BigInt(calculateSftGasLimit(sftCount));
+        // Calculate total gas limit based on qty
+        const gasLimit = BigInt(calculateSftGasLimit(qty));
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -215,9 +215,9 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, s
 // Route for SFT transfers with dynamic gas calculation
 app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
-        const { recipient, amount, tokenTicker, tokenNonce, sftCount } = req.body;
+        const { recipient, amount, tokenTicker, tokenNonce, qty } = req.body;
         const pemContent = getPemContent(req);
-        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce, sftCount);
+        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce, qty);
         res.json({ result });
     } catch (error) {
         console.error('Error executing SFT transaction:', error);
@@ -225,23 +225,28 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
-// --------------- Smart Contract Call Logic with Dynamic Gas --------------- //
+// --------------- Smart Contract Call Logic --------------- //
 
 // Function to execute a smart contract call with dynamic gas
-const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, scAssetCount) => {
+const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
         const senderAddress = signer.getAddress();
+
+        // Validate qty to ensure it's a number
+        if (isNaN(qty) || qty <= 0) {
+            throw new Error('Invalid quantity provided for smart contract call.');
+        }
+
+        // Convert qty to hexadecimal string (padded)
+        const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
 
         // Convert receiver address from Bech32 to hex using MultiversX SDK's Address class
         const receiverAddress = new Address(receiver);
         const receiverHex = receiverAddress.hex();
 
-        // Convert qty to hexadecimal string (padded)
-        const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
-
-        // Calculate total gas limit based on the number of assets
-        const gasLimit = BigInt(calculateNftGasLimit(scAssetCount));
+        // Calculate total gas limit based on qty
+        const gasLimit = BigInt(calculateNftGasLimit(qty));
 
         // Fetch account details from the network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
@@ -276,9 +281,9 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, scA
 // Route for smart contract call with dynamic gas calculation
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
-        const { scAddress, endpoint, receiver, qty, scAssetCount } = req.body;
+        const { scAddress, endpoint, receiver, qty } = req.body;
         const pemContent = getPemContent(req);  // Get the PEM content from the request body
-        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty, scAssetCount);
+        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
         res.json({ result });
     } catch (error) {
         console.error('Error executing smart contract call:', error);
