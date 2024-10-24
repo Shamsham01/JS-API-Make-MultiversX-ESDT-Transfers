@@ -237,15 +237,28 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, scA
         const receiverAddress = new Address(receiver);
         const receiverHex = receiverAddress.hex();
 
-        // Create the payload for the smart contract interaction (data field)
-        const dataField = `${endpoint}@${receiverHex}@${qty.toString(16).padStart(2, '0')}`;
+        // Validate qty to ensure it's a number
+        if (isNaN(qty) || qty <= 0) {
+            throw new Error('Invalid quantity provided for smart contract call.');
+        }
+
+        // Convert qty to hexadecimal string (padded)
+        const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
+
+        // Validate scAssetCount before calculating gas limit
+        if (isNaN(scAssetCount) || scAssetCount <= 0) {
+            throw new Error('Invalid asset count for gas limit calculation.');
+        }
+
+        // Calculate total gas limit based on the number of assets
+        const gasLimit = BigInt(calculateNftGasLimit(scAssetCount));
 
         // Fetch account details from the network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        // Calculate total gas limit based on the number of assets
-        const gasLimit = BigInt(calculateNftGasLimit(scAssetCount));
+        // Create the payload for the smart contract interaction (data field)
+        const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
         // Create a transaction object
         const tx = new Transaction({
@@ -266,7 +279,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, scA
         return { txHash: txHash.toString() };
     } catch (error) {
         console.error('Error executing smart contract call:', error);
-        throw new Error('Smart contract call failed');
+        throw new Error('Smart contract call failed: ' + error.message);
     }
 };
 
