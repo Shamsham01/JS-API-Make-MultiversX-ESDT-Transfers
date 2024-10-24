@@ -55,7 +55,7 @@ const checkTransactionStatus = async (txHash, retries = 10, delay = 5000) => {
 
 // --------------- Helper function for dynamic gas calculation --------------- //
 const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSize = 0) => {
-    let baseGas = 1000000n; // Base gas for simple EGLD transactions
+    let baseGas = 500000n; // Adjust base gas to a more reasonable value
     let multiplier = BigInt(numberOfItems); // For token transfers, NFTs, SFTs
     let payloadCost = BigInt(payloadSize) * 1500n; // Payload size increases gas
 
@@ -63,13 +63,13 @@ const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSiz
         case 'EGLD':
             return baseGas; // EGLD transfers are relatively cheap
         case 'ESDT':
-            return baseGas + (500000n * multiplier); // ESDT requires more gas depending on the number of items
+            return baseGas + (50000n * multiplier); // ESDT requires more gas depending on the number of items
         case 'NFT':
-            return baseGas + (1000000n * multiplier); // NFT transfers require even more gas
+            return baseGas + (100000n * multiplier); // NFT transfers require more gas, scaled by the number of items
         case 'SFT':
-            return baseGas + (1000000n * multiplier); // SFT transfers similar to NFTs
+            return baseGas + (100000n * multiplier); // SFT transfers similar to NFTs
         case 'SC_CALL':
-            return baseGas + (5000000n + payloadCost); // Smart contract calls can be heavy depending on the payload size
+            return baseGas + (1000000n * multiplier) + payloadCost; // Smart contract calls, increased gas for each item + payload
         default:
             throw new Error("Unknown transaction type");
     }
@@ -323,7 +323,7 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
 });
 
 // --------------- Smart Contract Call Logic --------------- //
-const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
+const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, numberOfItems) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
@@ -339,14 +339,16 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
+        // Dynamically calculate gas based on the number of items and payload size
+        const gasLimit = calculateDynamicGasLimit('SC_CALL', numberOfItems, dataField.length);
+
         // Create a transaction object
         const tx = new Transaction({
             nonce: senderNonce,
             receiver: new Address(scAddress),
             sender: senderAddress,
             value: '0',  // Sending 0 EGLD
-            // Dynamically calculate gas based on the payload size
-            gasLimit: calculateDynamicGasLimit('SC_CALL', 1, dataField.length),
+            gasLimit: gasLimit, // Use dynamic gas limit
             data: new TransactionPayload(dataField),
             chainID: '1',
         });
@@ -366,6 +368,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         throw new Error('Smart contract call failed');
     }
 };
+
 
 // Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
