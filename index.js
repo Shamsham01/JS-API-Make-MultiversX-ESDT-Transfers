@@ -274,6 +274,9 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, num
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
+        // Log the number of NFTs/items
+        console.log(`Number of NFTs being sent: ${numberOfItems}`);
+
         // Convert receiver address from Bech32 to hex using MultiversX SDK's Address class
         const receiverAddress = new Address(receiver);
         const receiverHex = receiverAddress.hex();
@@ -287,6 +290,9 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, num
 
         // Dynamically calculate gas based on the number of NFTs and payload size
         const gasLimit = calculateDynamicGasLimit('SC_CALL', numberOfItems, dataField.length);
+
+        // Log the calculated gas limit
+        console.log(`Calculated Gas Limit: ${gasLimit.toString()}`);
 
         // Create a transaction object
         const tx = new Transaction({
@@ -314,6 +320,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, num
         throw new Error('Smart contract call failed');
     }
 };
+
 
 // Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
