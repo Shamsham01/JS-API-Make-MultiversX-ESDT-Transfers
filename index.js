@@ -339,7 +339,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, num
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        // Dynamically calculate gas based on the number of items and payload size
+        // Dynamically calculate gas based on the number of NFTs and payload size
         const gasLimit = calculateDynamicGasLimit('SC_CALL', numberOfItems, dataField.length);
 
         // Create a transaction object
