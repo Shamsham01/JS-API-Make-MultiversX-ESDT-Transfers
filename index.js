@@ -227,6 +227,25 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
 
 // --------------- Smart Contract Call Logic with Dynamic Gas --------------- //
 
+// Route for smart contract call with dynamic gas calculation
+app.post('/execute/scCall', checkToken, async (req, res) => {
+    try {
+        const { scAddress, endpoint, receiver, qty, scAssetCount } = req.body;
+
+        // Ensure scAssetCount is provided and valid
+        if (scAssetCount === undefined || isNaN(scAssetCount) || scAssetCount <= 0) {
+            return res.status(400).json({ error: "Invalid or missing asset count for gas limit calculation." });
+        }
+
+        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty, scAssetCount);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing smart contract call:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Function to execute a smart contract call with dynamic gas
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, scAssetCount) => {
     try {
@@ -244,11 +263,6 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, scA
 
         // Convert qty to hexadecimal string (padded)
         const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
-
-        // Validate scAssetCount before calculating gas limit
-        if (isNaN(scAssetCount) || scAssetCount <= 0) {
-            throw new Error('Invalid asset count for gas limit calculation.');
-        }
 
         // Calculate total gas limit based on the number of assets
         const gasLimit = BigInt(calculateNftGasLimit(scAssetCount));
@@ -282,19 +296,6 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, scA
         throw new Error('Smart contract call failed: ' + error.message);
     }
 };
-
-// Route for smart contract call with dynamic gas calculation
-app.post('/execute/scCall', checkToken, async (req, res) => {
-    try {
-        const { scAddress, endpoint, receiver, qty, scAssetCount } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
-        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty, scAssetCount);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing smart contract call:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
 
 // Start the server
 app.listen(PORT, () => {
