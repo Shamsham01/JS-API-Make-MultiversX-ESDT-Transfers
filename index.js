@@ -61,6 +61,11 @@ const calculateNftGasLimit = (numberOfItems) => {
 // --------------- Smart Contract Call Logic (Giveaway) --------------- //
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, numberOfItems) => {
     try {
+        // Validate numberOfItems
+        if (numberOfItems === undefined || isNaN(numberOfItems) || numberOfItems <= 0) {
+            throw new Error("Invalid number of NFTs (numberOfItems) provided.");
+        }
+
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
@@ -114,6 +119,12 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, num
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty, numberOfItems } = req.body;
+
+        // Validate numberOfItems before proceeding
+        if (numberOfItems === undefined || isNaN(numberOfItems) || numberOfItems <= 0) {
+            throw new Error("Invalid numberOfItems provided in the request body.");
+        }
+
         const pemContent = getPemContent(req);
         const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty, numberOfItems);
         res.json({ result });
