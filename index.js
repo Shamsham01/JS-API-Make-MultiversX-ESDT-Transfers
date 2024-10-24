@@ -53,28 +53,27 @@ const checkTransactionStatus = async (txHash, retries = 10, delay = 5000) => {
     throw new Error(`Transaction ${txHash} not confirmed after ${retries} retries.`);
 };
 
-// --------------- Helper function for dynamic gas calculation based on documentation --------------- //
+// --------------- Helper function for dynamic gas calculation --------------- //
 const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSize = 0) => {
     const MIN_GAS_LIMIT = 50000n; // Minimum gas limit for any transaction
     const GAS_PER_DATA_BYTE = 1500n; // Gas cost per byte of data
-    const ESDT_TRANSFER_FUNCTION_COST = 200000n; // Cost for smart contract function
-    const GAS_PRICE_MODIFIER = 0.01; // Gas price modifier for smart contracts
+    const GAS_PER_NFT = 5000000n; // Assume 5M gas per NFT or SFT
+    const GAS_PER_ESDT = 500000n; // Assume 500K gas per ESDT transfer
 
     let baseGas = MIN_GAS_LIMIT; // Base gas cost for the transaction
-    let multiplier = BigInt(numberOfItems); // Multiplier for NFTs, SFTs
+    let multiplier = BigInt(numberOfItems); // Multiplier for NFTs, SFTs, or other items
     let payloadCost = BigInt(payloadSize) * GAS_PER_DATA_BYTE; // Payload size increases gas cost
 
     switch (transactionType) {
         case 'EGLD':
             return baseGas + payloadCost; // EGLD transfers add data size cost
         case 'ESDT':
-            return baseGas + (500000n * multiplier) + payloadCost; // ESDT requires more gas depending on the number of items
+            return baseGas + (GAS_PER_ESDT * multiplier) + payloadCost; // Gas for each ESDT transfer
         case 'NFT':
-            return baseGas + (5000000n * multiplier) + payloadCost; // Assume 5M gas per NFT
         case 'SFT':
-            return baseGas + (5000000n * multiplier) + payloadCost; // Assume 5M gas per SFT
+            return baseGas + (GAS_PER_NFT * multiplier) + payloadCost; // Gas for each NFT/SFT transfer
         case 'SC_CALL':
-            return baseGas + (BigInt(ESDT_TRANSFER_FUNCTION_COST) * multiplier) + payloadCost + (2000n * multiplier); // Smart contract call with a base multiplier and payload
+            return baseGas + (GAS_PER_NFT * multiplier) + payloadCost; // Smart contract call for distributing NFTs/SFTs
         default:
             throw new Error("Unknown transaction type");
     }
@@ -147,6 +146,78 @@ app.post('/execute/egldTransfer', checkToken, async (req, res) => {
     }
 });
 
+// --------------- ESDT Transfer Logic --------------- //
+const getTokenDecimals = async (tokenTicker) => {
+    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
+    const response = await fetch(apiUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch token info: ${response.statusText}`);
+    }
+    const tokenInfo = await response.json();
+    return tokenInfo.decimals || 0;
+};
+
+const convertAmountToBlockchainValue = (amount, decimals) => {
+    const factor = new BigNumber(10).pow(decimals);
+    return new BigNumber(amount).multipliedBy(factor).toFixed(0);
+};
+
+const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const nonce = accountOnNetwork.nonce;
+
+        const decimals = await getTokenDecimals(tokenTicker);
+        const convertedAmount = convertAmountToBlockchainValue(amount, decimals);
+
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = factory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            tokenTransfers: [
+                new TokenTransfer({
+                    token: new Token({ identifier: tokenTicker }),
+                    amount: BigInt(convertedAmount)
+                })
+            ]
+        });
+
+        tx.nonce = nonce;
+
+        // Dynamically calculate gas limit for ESDT based on the amount
+        tx.gasLimit = calculateDynamicGasLimit('ESDT', amount);
+
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+
+        await checkTransactionStatus(txHash.toString());
+
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending ESDT transaction:', error);
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for ESDT transfers
+app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, amount, tokenTicker } = req.body;
+        const pemContent = getPemContent(req);
+        const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing ESDT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --------------- NFT Transfer Logic --------------- //
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, amount) => {
     try {
@@ -201,6 +272,60 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     }
 });
 
+// --------------- SFT Transfer Logic --------------- //
+const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const accountNonce = accountOnNetwork.nonce;
+
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = factory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            tokenTransfers: [
+                new TokenTransfer({
+                    token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
+                    amount: BigInt(amount)
+                })
+            ]
+        });
+
+        tx.nonce = accountNonce;
+
+        // Dynamically calculate gas limit for SFTs based on amount and number of items
+        tx.gasLimit = calculateDynamicGasLimit('SFT', amount);
+
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+
+        await checkTransactionStatus(txHash.toString());
+
+        return { txHash: txHash.toString() };
+    } catch (error) {
+        console.error('Error sending SFT transaction:', error);
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for SFT transfers
+app.post('/execute/sftTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, amount, tokenTicker, tokenNonce } = req.body;
+        const pemContent = getPemContent(req);
+        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing SFT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, numberOfItems) => {
     try {
@@ -221,7 +346,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, num
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        // Dynamically calculate gas based on the number of NFTs and payload size
+        // Dynamically calculate gas based on the number of NFTs/SFTs and payload size
         const gasLimit = calculateDynamicGasLimit('SC_CALL', numberOfItems, dataField.length);
 
         // Log the calculated gas limit
