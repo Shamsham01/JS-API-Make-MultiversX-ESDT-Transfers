@@ -55,21 +55,21 @@ const checkTransactionStatus = async (txHash, retries = 10, delay = 5000) => {
 
 // --------------- Helper function for dynamic gas calculation --------------- //
 const calculateDynamicGasLimit = (transactionType, numberOfItems = 1, payloadSize = 0) => {
-    let baseGas = 500000n; // Adjust base gas to a more reasonable value
-    let multiplier = BigInt(numberOfItems); // For token transfers, NFTs, SFTs
+    let baseGas = 1000000n; // Base gas for smart contract calls (1M)
+    let multiplier = BigInt(numberOfItems); // Multiplier for NFTs, SFTs
     let payloadCost = BigInt(payloadSize) * 1500n; // Payload size increases gas
 
-    switch(transactionType) {
+    switch (transactionType) {
         case 'EGLD':
             return baseGas; // EGLD transfers are relatively cheap
         case 'ESDT':
-            return baseGas + (50000n * multiplier); // ESDT requires more gas depending on the number of items
+            return baseGas + (500000n * multiplier); // ESDT requires more gas depending on the number of items
         case 'NFT':
-            return baseGas + (100000n * multiplier); // NFT transfers require more gas, scaled by the number of items
+            return baseGas + (5000000n * multiplier); // Each NFT requires 5M gas
         case 'SFT':
-            return baseGas + (100000n * multiplier); // SFT transfers similar to NFTs
+            return baseGas + (5000000n * multiplier); // SFT transfers similar to NFTs
         case 'SC_CALL':
-            return baseGas + (1000000n * multiplier) + payloadCost; // Smart contract calls, increased gas for each item + payload
+            return baseGas + (5000000n * multiplier) + payloadCost; // Smart contract calls, assume 5M per item
         default:
             throw new Error("Unknown transaction type");
     }
@@ -268,60 +268,6 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     }
 });
 
-// --------------- SFT Transfer Logic --------------- //
-const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
-    try {
-        const signer = UserSigner.fromPem(pemContent);
-        const senderAddress = signer.getAddress();
-        const receiverAddress = new Address(recipient);
-
-        const accountOnNetwork = await provider.getAccount(senderAddress);
-        const accountNonce = accountOnNetwork.nonce;
-
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
-
-        const tx = factory.createTransactionForESDTTokenTransfer({
-            sender: senderAddress,
-            receiver: receiverAddress,
-            tokenTransfers: [
-                new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
-                    amount: BigInt(amount)
-                })
-            ]
-        });
-
-        tx.nonce = accountNonce;
-
-        // Dynamically calculate gas limit for SFTs based on amount
-        tx.gasLimit = calculateDynamicGasLimit('SFT', amount);
-
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-
-        await checkTransactionStatus(txHash.toString());
-
-        return { txHash: txHash.toString() };
-    } catch (error) {
-        console.error('Error sending SFT transaction:', error);
-        throw new Error('Transaction failed');
-    }
-};
-
-// Route for SFT transfers
-app.post('/execute/sftTransfer', checkToken, async (req, res) => {
-    try {
-        const { recipient, amount, tokenTicker, tokenNonce } = req.body;
-        const pemContent = getPemContent(req);
-        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing SFT transaction:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, numberOfItems) => {
     try {
@@ -369,13 +315,12 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty, num
     }
 };
 
-
 // Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
-        const { scAddress, endpoint, receiver, qty } = req.body;
+        const { scAddress, endpoint, receiver, qty, numberOfItems } = req.body;
         const pemContent = getPemContent(req);
-        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
+        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty, numberOfItems);
         res.json({ result });
     } catch (error) {
         console.error('Error executing smart contract call:', error);
