@@ -259,6 +259,8 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 });
 
 // --------------- SFT Transfer Logic --------------- //
+
+// Function to send SFT tokens with dynamic gas limit and polling
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -268,12 +270,13 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
-        const decimals = 0;
-        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
+        const decimals = 0;  // Assume SFTs have 0 decimals by default
+        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);  // Adjust amount based on decimals
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
+        // Calculate total gas limit based on qty (this is for multiple assets, if qty is > 1)
         const gasLimit = BigInt(calculateSftGasLimit(qty));
 
         const tx = factory.createTransactionForESDTTokenTransfer({
@@ -282,18 +285,18 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
-                    amount: adjustedAmount
+                    amount: adjustedAmount  // Amount in adjusted value based on decimals
                 })
             ]
         });
 
         tx.nonce = accountNonce;
-        tx.gasLimit = gasLimit;
+        tx.gasLimit = gasLimit;  // Set dynamic gas limit
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status
+        // Wait for transaction confirmation using polling logic
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return { txHash: txHash.toString(), status: finalStatus };
     } catch (error) {
@@ -314,6 +317,7 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
