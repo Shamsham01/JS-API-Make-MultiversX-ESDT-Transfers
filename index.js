@@ -29,13 +29,23 @@ const checkToken = (req, res, next) => {
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
     
-    // Check if the PEM content is in the expected format
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
         throw new Error('Invalid PEM content');
     }
-
-    // The pemContent is passed directly without any modification
     return pemContent;
+};
+
+// Polling function to check the status of a transaction
+const pollTransactionStatus = async (txHash) => {
+    let status;
+    while (!status || status === 'pending') {
+        status = await provider.getTransactionStatus(txHash);
+        if (status !== 'pending') {
+            break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 5000));  // Poll every 5 seconds
+    }
+    return status;
 };
 
 // --------------- Authorization Endpoint --------------- //
@@ -79,7 +89,12 @@ const sendEgld = async (pemContent, recipient, amount) => {
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        return { txHash: txHash.toString() };
+
+        // Poll transaction status until confirmed
+        const finalStatus = await pollTransactionStatus(txHash.toString());
+
+        // Return final status of the transaction
+        return { txHash: txHash.toString(), status: finalStatus };
     } catch (error) {
         console.error('Error sending EGLD transaction:', error);
         throw new Error('Transaction failed');
@@ -101,7 +116,7 @@ app.post('/execute/egldTransfer', checkToken, async (req, res) => {
 
 // --------------- Gas Calculation Functions --------------- //
 
-// Function to calculate total gas limit for NFTs/scCalls (5,000,000 gas per asset)
+// Function to calculate total gas limit for NFTs/scCalls (15,000,000 gas per asset)
 const calculateNftGasLimit = (qty) => {
     const nftBaseGas = 15000000;  // Base gas per NFT/scCall
     return nftBaseGas * qty;
@@ -115,7 +130,7 @@ const calculateSftGasLimit = (qty) => {
 
 // --------------- NFT Transfer Logic --------------- //
 
-// Function to send NFT tokens with dynamic gas limit
+// Function to send NFT tokens with dynamic gas limit and wait for transaction confirmation
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, amount, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -148,14 +163,19 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
 
         await signer.sign(tx);  // Sign the transaction
         const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
-        return { txHash: txHash.toString() };
+
+        // Poll transaction status until confirmed
+        const finalStatus = await pollTransactionStatus(txHash.toString());
+
+        // Return final status of the transaction
+        return { txHash: txHash.toString(), status: finalStatus };
     } catch (error) {
         console.error('Error sending NFT transaction:', error);
         throw new Error('Transaction failed');
     }
 };
 
-// Route for NFT transfers with dynamic gas calculation
+// Route for NFT transfers with dynamic gas calculation and waiting for confirmation
 app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, tokenNonce, amount, qty } = req.body;
@@ -170,7 +190,7 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 
 // --------------- SFT Transfer Logic --------------- //
 
-// Function to send SFT tokens with dynamic gas limit
+// Function to send SFT tokens with dynamic gas limit and wait for transaction confirmation
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -205,14 +225,19 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        return { txHash: txHash.toString() };
+
+        // Poll transaction status until confirmed
+        const finalStatus = await pollTransactionStatus(txHash.toString());
+
+        // Return final status of the transaction
+        return { txHash: txHash.toString(), status: finalStatus };
     } catch (error) {
         console.error('Error sending SFT transaction:', error);
         throw new Error('Transaction failed');
     }
 };
 
-// Route for SFT transfers with dynamic gas calculation
+// Route for SFT transfers with dynamic gas calculation and waiting for confirmation
 app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker, tokenNonce, qty } = req.body;
@@ -227,7 +252,7 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
 
 // --------------- Smart Contract Call Logic --------------- //
 
-// Function to execute a smart contract call with dynamic gas
+// Function to execute a smart contract call with dynamic gas and wait for transaction confirmation
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
@@ -271,14 +296,19 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
 
         // Send the transaction
         const txHash = await provider.sendTransaction(tx);
-        return { txHash: txHash.toString() };
+
+        // Poll transaction status until confirmed
+        const finalStatus = await pollTransactionStatus(txHash.toString());
+
+        // Return final status of the transaction
+        return { txHash: txHash.toString(), status: finalStatus };
     } catch (error) {
         console.error('Error executing smart contract call:', error);
         throw new Error('Smart contract call failed: ' + error.message);
     }
 };
 
-// Route for smart contract call with dynamic gas calculation
+// Route for smart contract call with dynamic gas calculation and waiting for confirmation
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
