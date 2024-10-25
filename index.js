@@ -28,53 +28,55 @@ const checkToken = (req, res, next) => {
 // Function to validate and return the PEM content from the request body
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
-    
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
         throw new Error('Invalid PEM content');
     }
     return pemContent;
 };
 
-// Polling function to check the status of a transaction and fetch error logs if needed
-const pollTransactionStatus = async (txHash) => {
-    // Introduce an initial delay of 5 seconds before polling
-    await new Promise(resolve => setTimeout(resolve, 5000));
+// --------------- Transaction Confirmation Logic (Old Polling Logic) --------------- //
+const checkTransactionStatus = async (txHash, retries = 10, delay = 9000) => {
+    for (let i = 0; i < retries; i++) {
+        const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
+        const response = await fetch(txStatusUrl);
+        const txStatus = await response.json();
 
-    let status;
-    let retries = 0;
-    const maxRetries = 5;  // Retry up to 5 times
-
-    while (!status || status === 'pending') {
-        try {
-            const txDetails = await provider.getTransaction(txHash);
-            status = txDetails.status;
-
-            if (status !== 'pending') {
-                break;
-            }
-        } catch (error) {
-            console.error(`Error fetching transaction status: ${error.message}`);
-            if (retries >= maxRetries) {
-                throw new Error('Max retries reached for fetching transaction status');
-            }
-            retries++;
+        if (txStatus.status === 'success') {
+            return { status: 'success', txHash };
+        } else if (txStatus.status === 'fail') {
+            throw new Error(`Transaction ${txHash} failed.`);
         }
-        await new Promise(resolve => setTimeout(resolve, 5000));  // Poll every 5 seconds
+
+        await new Promise(resolve => setTimeout(resolve, delay));
     }
 
-    if (status === 'success') {
-        return { status, txHash };
-    } else {
-        const txDetails = await provider.getTransaction(txHash);
-        console.error(`Transaction failed: ${JSON.stringify(txDetails)}`);
-        throw new Error(`Transaction failed with status: ${status}, details: ${JSON.stringify(txDetails)}`);
-    }
+    throw new Error(`Transaction ${txHash} not confirmed after ${retries} retries.`);
+};
+
+// --------------- Gas Calculation Functions --------------- //
+
+// Function to calculate total gas limit for NFTs/scCalls (15,000,000 gas per asset)
+const calculateNftGasLimit = (qty) => {
+    const nftBaseGas = 15000000;  // Base gas per NFT/scCall
+    return nftBaseGas * qty;
+};
+
+// Function to calculate total gas limit for SFTs (500,000 gas per asset)
+const calculateSftGasLimit = (qty) => {
+    const sftBaseGas = 500000;   // Base gas per SFT
+    return sftBaseGas * qty;
+};
+
+// Function to calculate gas limit for ESDT transfers
+const calculateEsdtGasLimit = (amount) => {
+    const baseGas = 500000;  // Base gas per ESDT transaction
+    return BigInt(baseGas);  // Returning as BigInt for compatibility with the transaction
 };
 
 // --------------- Authorization Endpoint --------------- //
 app.post('/execute/authorize', checkToken, (req, res) => {
     try {
-        const pemContent = getPemContent(req);  // Validate PEM content
+        const pemContent = getPemContent(req);
         res.json({ message: "Authorization Successful" });
     } catch (error) {
         res.status(400).json({ error: error.message });
@@ -83,13 +85,13 @@ app.post('/execute/authorize', checkToken, (req, res) => {
 
 // Function to convert EGLD to WEI (1 EGLD = 10^18 WEI)
 const convertEGLDToWEI = (amount) => {
-    return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);  // Convert to string in WEI
+    return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);
 };
 
 // Function to send EGLD (native token)
 const sendEgld = async (pemContent, recipient, amount) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
@@ -113,8 +115,8 @@ const sendEgld = async (pemContent, recipient, amount) => {
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed or failed
-        const finalStatus = await pollTransactionStatus(txHash.toString());
+        // Wait for transaction confirmation using the old polling logic
+        const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
         console.error('Error sending EGLD transaction:', error);
@@ -135,20 +137,6 @@ app.post('/execute/egldTransfer', checkToken, async (req, res) => {
     }
 });
 
-// --------------- Gas Calculation Functions --------------- //
-
-// Function to calculate total gas limit for NFTs/scCalls (15,000,000 gas per asset)
-const calculateNftGasLimit = (qty) => {
-    const nftBaseGas = 15000000;  // Base gas per NFT/scCall
-    return nftBaseGas * qty;
-};
-
-// Function to calculate total gas limit for SFTs (500,000 gas per asset)
-const calculateSftGasLimit = (qty) => {
-    const sftBaseGas = 500000;   // Base gas per SFT
-    return sftBaseGas * qty;
-};
-
 // --------------- ESDT Transfer Logic --------------- //
 
 // Fetch token decimals for the ESDT
@@ -166,12 +154,6 @@ const getTokenDecimals = async (tokenTicker) => {
 const convertAmountToBlockchainValue = (amount, decimals) => {
     const factor = new BigNumber(10).pow(decimals);
     return new BigNumber(amount).multipliedBy(factor).toFixed(0);
-};
-
-// Function to calculate gas limit for ESDT transfers
-const calculateEsdtGasLimit = (amount) => {
-    const baseGas = 500000;  // Base gas per ESDT transaction
-    return BigInt(baseGas);
 };
 
 // Function to send ESDT tokens (Fungible Tokens)
@@ -208,8 +190,8 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed or failed
-        const finalStatus = await pollTransactionStatus(txHash.toString());
+        // Wait for transaction confirmation
+        const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
         console.error('Error sending ESDT transaction:', error);
@@ -217,7 +199,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     }
 };
 
-// Route for ESDT transfers (Fungible Tokens) with dynamic gas calculation and waiting for confirmation
+// Route for ESDT transfers
 app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
@@ -231,8 +213,6 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
 });
 
 // --------------- NFT Transfer Logic --------------- //
-
-// Function to send NFT tokens with dynamic gas limit and wait for transaction confirmation
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, amount, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -254,8 +234,8 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
             receiver: receiverAddress,
             tokenTransfers: [
                 new TokenTransfer({
-                    token: new Token({ identifier: tokenIdentifier, nonce: BigInt(tokenNonce) }),  // NFT requires nonce to identify the specific token
-                    amount: BigInt(amount)  // Typically amount is 1 for NFTs, but supporting dynamic amount
+                    token: new Token({ identifier: tokenIdentifier, nonce: BigInt(tokenNonce) }),
+                    amount: BigInt(amount)
                 })
             ]
         });
@@ -263,11 +243,11 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         tx.nonce = senderNonce;
         tx.gasLimit = gasLimit;  // Set dynamic gas limit
 
-        await signer.sign(tx);  // Sign the transaction
+        await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
         // Poll transaction status until confirmed or failed
-        const finalStatus = await pollTransactionStatus(txHash.toString());
+        const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
         console.error('Error sending NFT transaction:', error);
@@ -288,72 +268,10 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     }
 });
 
-// --------------- SFT Transfer Logic --------------- //
-
-// Function to send SFT tokens with dynamic gas limit and wait for transaction confirmation
-const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
-    try {
-        const signer = UserSigner.fromPem(pemContent);
-        const senderAddress = signer.getAddress();
-        const receiverAddress = new Address(recipient);
-
-        const accountOnNetwork = await provider.getAccount(senderAddress);
-        const accountNonce = accountOnNetwork.nonce;
-
-        const decimals = 0;  // Assume SFTs have 0 decimals by default
-        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
-
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
-
-        // Calculate total gas limit based on qty
-        const gasLimit = BigInt(calculateSftGasLimit(qty));
-
-        const tx = factory.createTransactionForESDTTokenTransfer({
-            sender: senderAddress,
-            receiver: receiverAddress,
-            tokenTransfers: [
-                new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
-                    amount: adjustedAmount
-                })
-            ]
-        });
-
-        tx.nonce = accountNonce;
-        tx.gasLimit = gasLimit;  // Set dynamic gas limit
-
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-
-        // Poll transaction status until confirmed or failed
-        const finalStatus = await pollTransactionStatus(txHash.toString());
-        return finalStatus;
-    } catch (error) {
-        console.error('Error sending SFT transaction:', error);
-        throw new Error('Transaction failed');
-    }
-};
-
-// Route for SFT transfers with dynamic gas calculation and waiting for confirmation
-app.post('/execute/sftTransfer', checkToken, async (req, res) => {
-    try {
-        const { recipient, amount, tokenTicker, tokenNonce, qty } = req.body;
-        const pemContent = getPemContent(req);
-        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce, qty);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing SFT transaction:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
 // --------------- Smart Contract Call Logic --------------- //
-
-// Function to execute a smart contract call with dynamic gas and wait for transaction confirmation
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
-        const signer = UserSigner.fromPem(pemContent);  // Use PEM content from request
+        const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
         // Validate qty to ensure it's a number
@@ -371,7 +289,6 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         // Calculate total gas limit based on qty
         const gasLimit = BigInt(calculateNftGasLimit(qty));
 
-        // Fetch account details from the network to get the nonce
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
@@ -383,10 +300,10 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
             nonce: senderNonce,
             receiver: new Address(scAddress),
             sender: senderAddress,
-            value: '0',  // Sending 0 EGLD
-            gasLimit: gasLimit,  // Set dynamic gas limit
-            data: new TransactionPayload(dataField),  // Payload with the endpoint and parameters
-            chainID: '1',  // Mainnet chain ID
+            value: '0',
+            gasLimit: gasLimit,
+            data: new TransactionPayload(dataField),
+            chainID: '1',
         });
 
         // Sign the transaction
@@ -396,7 +313,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         const txHash = await provider.sendTransaction(tx);
 
         // Poll transaction status until confirmed or failed
-        const finalStatus = await pollTransactionStatus(txHash.toString());
+        const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
         console.error('Error executing smart contract call:', error);
