@@ -103,7 +103,7 @@ app.post('/execute/egldTransfer', checkToken, async (req, res) => {
 
 // Function to calculate total gas limit for NFTs/scCalls (5,000,000 gas per asset)
 const calculateNftGasLimit = (qty) => {
-    const nftBaseGas = 10000000;  // Base gas per NFT/scCall
+    const nftBaseGas = 50000000;  // Base gas per NFT/scCall
     return nftBaseGas * qty;
 };
 
