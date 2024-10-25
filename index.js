@@ -147,19 +147,6 @@ const convertAmountToBlockchainValue = (amount, decimals) => {
     return new BigNumber(amount).multipliedBy(factor).toFixed(0);
 };
 
-// Polling function to check the status of a transaction
-const pollTransactionStatus = async (txHash) => {
-    let status;
-    while (!status || status === 'pending') {
-        status = await provider.getTransactionStatus(txHash);
-        if (status !== 'pending') {
-            break;
-        }
-        await new Promise(resolve => setTimeout(resolve, 5000));  // Poll every 5 seconds
-    }
-    return status;
-};
-
 // Function to calculate gas limit for ESDT transfers
 const calculateEsdtGasLimit = (amount) => {
     // Adjust this based on the expected load for ESDT transactions.
@@ -225,7 +212,6 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 
 // --------------- NFT Transfer Logic --------------- //
 
