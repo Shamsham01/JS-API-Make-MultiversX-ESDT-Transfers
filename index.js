@@ -35,17 +35,38 @@ const getPemContent = (req) => {
     return pemContent;
 };
 
-// Polling function to check the status of a transaction
+// Polling function to check the status of a transaction and fetch error logs if needed
 const pollTransactionStatus = async (txHash) => {
+    // Introduce an initial delay of 5 seconds before polling
+    await new Promise(resolve => setTimeout(resolve, 5000));
+
     let status;
+    let retries = 0;
+    const maxRetries = 5;  // Retry up to 5 times
+
     while (!status || status === 'pending') {
-        status = await provider.getTransactionStatus(txHash);
-        if (status !== 'pending') {
-            break;
+        try {
+            status = await provider.getTransactionStatus(txHash);
+            if (status !== 'pending') {
+                break;
+            }
+        } catch (error) {
+            console.error(`Error fetching transaction status: ${error.message}`);
+            if (retries >= maxRetries) {
+                throw new Error('Max retries reached for fetching transaction status');
+            }
+            retries++;
         }
         await new Promise(resolve => setTimeout(resolve, 5000));  // Poll every 5 seconds
     }
-    return status;
+
+    if (status === 'success') {
+        return { status, txHash };
+    } else {
+        const errorLog = await provider.getTransactionProcessStatus(txHash);
+        console.error(`Transaction failed: ${errorLog}`);
+        throw new Error(`Transaction failed with status: ${status}`);
+    }
 };
 
 // --------------- Authorization Endpoint --------------- //
@@ -90,11 +111,9 @@ const sendEgld = async (pemContent, recipient, amount) => {
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed
+        // Poll transaction status until confirmed or failed
         const finalStatus = await pollTransactionStatus(txHash.toString());
-
-        // Return final status of the transaction
-        return { txHash: txHash.toString(), status: finalStatus };
+        return finalStatus;
     } catch (error) {
         console.error('Error sending EGLD transaction:', error);
         throw new Error('Transaction failed');
@@ -149,10 +168,8 @@ const convertAmountToBlockchainValue = (amount, decimals) => {
 
 // Function to calculate gas limit for ESDT transfers
 const calculateEsdtGasLimit = (amount) => {
-    // Adjust this based on the expected load for ESDT transactions.
-    // You can increase/decrease based on testing and actual network usage.
     const baseGas = 500000;  // Base gas per ESDT transaction
-    return BigInt(baseGas);  // Returning as BigInt for compatibility with the transaction
+    return BigInt(baseGas);
 };
 
 // Function to send ESDT tokens (Fungible Tokens)
@@ -184,16 +201,14 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         });
 
         tx.nonce = nonce;
-        tx.gasLimit = calculateEsdtGasLimit(amount);  // Set dynamic gas limit based on the amount
+        tx.gasLimit = calculateEsdtGasLimit(amount);  // Set dynamic gas limit
 
-        await signer.sign(tx);  // Sign the transaction
-        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed
+        // Poll transaction status until confirmed or failed
         const finalStatus = await pollTransactionStatus(txHash.toString());
-
-        // Return final status of the transaction
-        return { txHash: txHash.toString(), status: finalStatus };
+        return finalStatus;
     } catch (error) {
         console.error('Error sending ESDT transaction:', error);
         throw new Error('Transaction failed');
@@ -247,13 +262,11 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         tx.gasLimit = gasLimit;  // Set dynamic gas limit
 
         await signer.sign(tx);  // Sign the transaction
-        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+        const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed
+        // Poll transaction status until confirmed or failed
         const finalStatus = await pollTransactionStatus(txHash.toString());
-
-        // Return final status of the transaction
-        return { txHash: txHash.toString(), status: finalStatus };
+        return finalStatus;
     } catch (error) {
         console.error('Error sending NFT transaction:', error);
         throw new Error('Transaction failed');
@@ -311,11 +324,9 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed
+        // Poll transaction status until confirmed or failed
         const finalStatus = await pollTransactionStatus(txHash.toString());
-
-        // Return final status of the transaction
-        return { txHash: txHash.toString(), status: finalStatus };
+        return finalStatus;
     } catch (error) {
         console.error('Error sending SFT transaction:', error);
         throw new Error('Transaction failed');
@@ -382,11 +393,9 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         // Send the transaction
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed
+        // Poll transaction status until confirmed or failed
         const finalStatus = await pollTransactionStatus(txHash.toString());
-
-        // Return final status of the transaction
-        return { txHash: txHash.toString(), status: finalStatus };
+        return finalStatus;
     } catch (error) {
         console.error('Error executing smart contract call:', error);
         throw new Error('Smart contract call failed: ' + error.message);
@@ -397,7 +406,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
-        const pemContent = getPemContent(req);  // Get the PEM content from the request body
+        const pemContent = getPemContent(req);
         const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
         res.json({ result });
     } catch (error) {
