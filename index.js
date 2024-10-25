@@ -34,8 +34,8 @@ const getPemContent = (req) => {
     return pemContent;
 };
 
-// --------------- Transaction Confirmation Logic (Old Polling Logic) --------------- //
-const checkTransactionStatus = async (txHash, retries = 10, delay = 9000) => {
+// --------------- Transaction Confirmation Logic (Polling Logic) --------------- //
+const checkTransactionStatus = async (txHash, retries = 10, delay = 5000) => {
     for (let i = 0; i < retries; i++) {
         const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
         const response = await fetch(txStatusUrl);
@@ -115,7 +115,7 @@ const sendEgld = async (pemContent, recipient, amount) => {
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction confirmation using the old polling logic
+        // Wait for transaction confirmation using polling logic
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -172,7 +172,6 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Create the ESDT token transfer transaction
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: receiverAddress,
@@ -190,7 +189,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction confirmation
+        // Wait for transaction confirmation using polling logic
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -228,7 +227,6 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         // Calculate total gas limit based on qty
         const gasLimit = BigInt(calculateNftGasLimit(qty));
 
-        // Create the NFT transfer transaction
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: receiverAddress,
@@ -246,7 +244,7 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed or failed
+        // Wait for transaction confirmation using polling logic
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -255,7 +253,7 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
     }
 };
 
-// Route for NFT transfers with dynamic gas calculation and waiting for confirmation
+// Route for NFT transfers
 app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, tokenNonce, amount, qty } = req.body;
@@ -264,6 +262,64 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
         res.json({ result });
     } catch (error) {
         console.error('Error executing NFT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// --------------- SFT Transfer Logic --------------- //
+const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const accountNonce = accountOnNetwork.nonce;
+
+        const decimals = 0;  // Assume SFTs have 0 decimals by default
+        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
+
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        // Calculate total gas limit based on qty
+        const gasLimit = BigInt(calculateSftGasLimit(qty));
+
+        const tx = factory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            tokenTransfers: [
+                new TokenTransfer({
+                    token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
+                    amount: adjustedAmount
+                })
+            ]
+        });
+
+        tx.nonce = accountNonce;
+        tx.gasLimit = gasLimit;  // Set dynamic gas limit
+
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+
+        // Wait for transaction confirmation using polling logic
+        const finalStatus = await checkTransactionStatus(txHash.toString());
+        return finalStatus;
+    } catch (error) {
+        console.error('Error sending SFT transaction:', error);
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for SFT transfers
+app.post('/execute/sftTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, amount, tokenTicker, tokenNonce, qty } = req.body;
+        const pemContent = getPemContent(req);
+        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce, qty);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing SFT transaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
@@ -295,7 +351,6 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
         // Create the payload for the smart contract interaction (data field)
         const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
-        // Create a transaction object
         const tx = new Transaction({
             nonce: senderNonce,
             receiver: new Address(scAddress),
@@ -306,13 +361,10 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
             chainID: '1',
         });
 
-        // Sign the transaction
         await signer.sign(tx);
-
-        // Send the transaction
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status until confirmed or failed
+        // Wait for transaction confirmation using polling logic
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -321,7 +373,7 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
     }
 };
 
-// Route for smart contract call with dynamic gas calculation and waiting for confirmation
+// Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
