@@ -128,6 +128,105 @@ const calculateSftGasLimit = (qty) => {
     return sftBaseGas * qty;
 };
 
+// --------------- ESDT Transfer Logic --------------- //
+
+// Fetch token decimals for the ESDT
+const getTokenDecimals = async (tokenTicker) => {
+    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
+    const response = await fetch(apiUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch token info: ${response.statusText}`);
+    }
+    const tokenInfo = await response.json();
+    return tokenInfo.decimals || 0;
+};
+
+// Convert token amount based on decimals
+const convertAmountToBlockchainValue = (amount, decimals) => {
+    const factor = new BigNumber(10).pow(decimals);
+    return new BigNumber(amount).multipliedBy(factor).toFixed(0);
+};
+
+// Polling function to check the status of a transaction
+const pollTransactionStatus = async (txHash) => {
+    let status;
+    while (!status || status === 'pending') {
+        status = await provider.getTransactionStatus(txHash);
+        if (status !== 'pending') {
+            break;
+        }
+        await new Promise(resolve => setTimeout(resolve, 5000));  // Poll every 5 seconds
+    }
+    return status;
+};
+
+// Function to calculate gas limit for ESDT transfers
+const calculateEsdtGasLimit = (amount) => {
+    // Adjust this based on the expected load for ESDT transactions.
+    // You can increase/decrease based on testing and actual network usage.
+    const baseGas = 500000;  // Base gas per ESDT transaction
+    return BigInt(baseGas);  // Returning as BigInt for compatibility with the transaction
+};
+
+// Function to send ESDT tokens (Fungible Tokens)
+const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
+    try {
+        const signer = UserSigner.fromPem(pemContent);
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const nonce = accountOnNetwork.nonce;
+
+        const decimals = await getTokenDecimals(tokenTicker);
+        const convertedAmount = convertAmountToBlockchainValue(amount, decimals);
+
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        // Create the ESDT token transfer transaction
+        const tx = factory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            tokenTransfers: [
+                new TokenTransfer({
+                    token: new Token({ identifier: tokenTicker }),
+                    amount: BigInt(convertedAmount)
+                })
+            ]
+        });
+
+        tx.nonce = nonce;
+        tx.gasLimit = calculateEsdtGasLimit(amount);  // Set dynamic gas limit based on the amount
+
+        await signer.sign(tx);  // Sign the transaction
+        const txHash = await provider.sendTransaction(tx);  // Send the transaction to the network
+
+        // Poll transaction status until confirmed
+        const finalStatus = await pollTransactionStatus(txHash.toString());
+
+        // Return final status of the transaction
+        return { txHash: txHash.toString(), status: finalStatus };
+    } catch (error) {
+        console.error('Error sending ESDT transaction:', error);
+        throw new Error('Transaction failed');
+    }
+};
+
+// Route for ESDT transfers (Fungible Tokens) with dynamic gas calculation and waiting for confirmation
+app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
+    try {
+        const { recipient, amount, tokenTicker } = req.body;
+        const pemContent = getPemContent(req);
+        const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing ESDT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
 // --------------- NFT Transfer Logic --------------- //
 
 // Function to send NFT tokens with dynamic gas limit and wait for transaction confirmation
