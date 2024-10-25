@@ -266,8 +266,8 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     }
 });
 
-// Function to send SFT tokens with dynamic gas limit and wait for transaction confirmation
-const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
+// Function to send SFT tokens
+const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
@@ -276,23 +276,15 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
-        // Validate and convert `amount` to BigInt
-        const decimals = 0;  // Assume SFTs have 0 decimals by default
-        if (isNaN(amount) || amount <= 0) {
-            throw new Error('Invalid amount provided for SFT transfer.');
-        }
+        // SFT tokens typically have 0 decimals, so we assume no decimals here
+        const decimals = 0;
         const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
-
-        // Validate and ensure `qty` is a valid number
-        if (isNaN(qty) || qty <= 0) {
-            throw new Error('Invalid quantity (qty) provided for SFT transfer.');
-        }
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Calculate total gas limit based on qty
-        const gasLimit = BigInt(calculateSftGasLimit(qty));
+        // Calculate total gas limit for SFT
+        const gasLimit = BigInt(500000); // Using a fixed gas limit for SFT
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -306,7 +298,7 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
         });
 
         tx.nonce = accountNonce;
-        tx.gasLimit = gasLimit;  // Set dynamic gas limit
+        tx.gasLimit = gasLimit;  // Fixed gas limit for SFT transfer
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
