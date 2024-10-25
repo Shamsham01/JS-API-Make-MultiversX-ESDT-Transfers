@@ -266,7 +266,7 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     }
 });
 
-// --------------- SFT Transfer Logic --------------- //
+// Function to send SFT tokens with dynamic gas limit and wait for transaction confirmation
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -276,8 +276,17 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
+        // Validate and convert `amount` to BigInt
         const decimals = 0;  // Assume SFTs have 0 decimals by default
+        if (isNaN(amount) || amount <= 0) {
+            throw new Error('Invalid amount provided for SFT transfer.');
+        }
         const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);
+
+        // Validate and ensure `qty` is a valid number
+        if (isNaN(qty) || qty <= 0) {
+            throw new Error('Invalid quantity (qty) provided for SFT transfer.');
+        }
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
