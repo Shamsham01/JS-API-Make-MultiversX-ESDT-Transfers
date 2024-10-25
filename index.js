@@ -46,7 +46,9 @@ const pollTransactionStatus = async (txHash) => {
 
     while (!status || status === 'pending') {
         try {
-            status = await provider.getTransactionStatus(txHash);
+            const txDetails = await provider.getTransaction(txHash);
+            status = txDetails.status;
+
             if (status !== 'pending') {
                 break;
             }
@@ -63,9 +65,9 @@ const pollTransactionStatus = async (txHash) => {
     if (status === 'success') {
         return { status, txHash };
     } else {
-        const errorLog = await provider.getTransactionProcessStatus(txHash);
-        console.error(`Transaction failed: ${errorLog}`);
-        throw new Error(`Transaction failed with status: ${status}`);
+        const txDetails = await provider.getTransaction(txHash);
+        console.error(`Transaction failed: ${JSON.stringify(txDetails)}`);
+        throw new Error(`Transaction failed with status: ${status}, details: ${JSON.stringify(txDetails)}`);
     }
 };
 
