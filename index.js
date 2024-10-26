@@ -262,6 +262,7 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 
 // Function to validate amount and qty before conversion to BigInt
 const validateNumberInput = (value, fieldName) => {
+    console.log(`Validating ${fieldName}:`, value);  // Log the input value for debugging
     const numValue = Number(value);
     if (isNaN(numValue) || numValue <= 0) {
         throw new Error(`Invalid ${fieldName} provided. It must be a positive number.`);
@@ -278,6 +279,9 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
+
+        // Log the inputs for debugging
+        console.log('Received SFT Transfer Request:', { recipient, amount, tokenTicker, nonce, qty });
 
         // Validate the amount and qty inputs before proceeding
         const validatedAmount = validateNumberInput(amount, "amount");
@@ -323,6 +327,10 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker, tokenNonce, qty } = req.body;
         const pemContent = getPemContent(req);
+
+        // Log the payload received from the request
+        console.log('Request Body:', req.body);
+
         const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce, qty);
         res.json({ result });
     } catch (error) {
@@ -330,7 +338,6 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 
 
 // --------------- Smart Contract Call Logic --------------- //
