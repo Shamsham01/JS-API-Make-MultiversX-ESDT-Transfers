@@ -273,10 +273,9 @@ const validateNumberInput = (value, fieldName) => {
 // Function to send SFT tokens with dynamic gas limit
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
     try {
-        // Ensure qty is a valid positive number
-        if (isNaN(qty) || qty <= 0) {
-            throw new Error('Invalid quantity provided. It must be a positive number.');
-        }
+        // Validate amount and qty before proceeding
+        const validQty = validateNumberInput(qty, 'quantity');
+        const validAmount = validateNumberInput(amount, 'amount');
 
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
@@ -286,13 +285,13 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
         const accountNonce = accountOnNetwork.nonce;
 
         // Ensure qty is properly converted to BigInt (handled as zero-decimal asset)
-        const adjustedAmount = BigInt(qty);
+        const adjustedAmount = BigInt(validQty);
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
         // Calculate total gas limit based on qty
-        const gasLimit = BigInt(calculateSftGasLimit(qty));
+        const gasLimit = BigInt(calculateSftGasLimit(validQty));
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -320,7 +319,6 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
     }
 };
 
-
 // Route for SFT transfers with dynamic gas calculation
 app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
@@ -337,7 +335,6 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
