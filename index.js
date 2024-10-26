@@ -260,8 +260,8 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 
 // --------------- SFT Transfer Logic --------------- //
 
-// Function to validate amount and qty before conversion to BigInt
-const validateNumberInput = (value, fieldName) => {
+// Function to validate amount before conversion to BigInt
+const validateAmountInput = (value, fieldName) => {
     console.log(`Validating ${fieldName}:`, value);  // Log the input value for debugging
     const numValue = Number(value);
     if (isNaN(numValue) || numValue <= 0) {
@@ -271,11 +271,10 @@ const validateNumberInput = (value, fieldName) => {
 };
 
 // Function to send SFT tokens with dynamic gas limit
-const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
+const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
     try {
-        // Validate amount and qty before proceeding
-        const validQty = validateNumberInput(qty, 'quantity');
-        const validAmount = validateNumberInput(amount, 'amount');
+        // Validate amount
+        const validAmount = validateAmountInput(amount, 'amount');
 
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
@@ -284,14 +283,14 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
-        // Ensure qty is properly converted to BigInt (handled as zero-decimal asset)
-        const adjustedAmount = BigInt(validQty);
+        // Convert amount to BigInt (SFTs typically have 0 decimals)
+        const adjustedAmount = BigInt(validAmount);
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Calculate total gas limit based on qty
-        const gasLimit = BigInt(calculateSftGasLimit(validQty));
+        // Calculate total gas limit based on amount
+        const gasLimit = BigInt(calculateSftGasLimit(validAmount));  // Use amount for gas calculation
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -299,7 +298,7 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
-                    amount: adjustedAmount  // Ensure BigInt usage for qty
+                    amount: adjustedAmount  // Ensure BigInt usage for amount
                 })
             ]
         });
@@ -322,19 +321,20 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
 // Route for SFT transfers with dynamic gas calculation
 app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
-        const { recipient, amount, tokenTicker, tokenNonce, qty } = req.body;
+        const { recipient, amount, tokenTicker, tokenNonce } = req.body;
         const pemContent = getPemContent(req);
 
         // Log the payload received from the request
         console.log('Request Body:', req.body);
 
-        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce, qty);
+        const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
         res.json({ result });
     } catch (error) {
         console.error('Error executing SFT transaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
