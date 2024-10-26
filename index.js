@@ -205,7 +205,19 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
 });
 
 // --------------- NFT Transfer Logic --------------- //
-const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, amount, qty) => {
+
+// Function to validate amount before conversion to BigInt
+const validateNumberInput = (value, fieldName) => {
+    console.log(`Validating ${fieldName}:`, value);  // Log the input value for debugging
+    const numValue = Number(value);
+    if (isNaN(numValue) || numValue <= 0) {
+        throw new Error(`Invalid ${fieldName} provided. It must be a positive number.`);
+    }
+    return numValue;
+};
+
+// Function to send NFT tokens (no qty required, amount is always 1)
+const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
@@ -217,7 +229,11 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        const gasLimit = BigInt(calculateNftGasLimit(qty));
+        // Hardcode the amount to 1 for NFTs
+        const amount = BigInt(1);
+
+        // Calculate gas limit (no need for qty, so just set base gas limit)
+        const gasLimit = BigInt(calculateNftGasLimit(1));  // Base gas limit for 1 NFT
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -225,18 +241,18 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenIdentifier, nonce: BigInt(tokenNonce) }),
-                    amount: BigInt(amount)
+                    amount: amount  // Always transfer 1 NFT
                 })
             ]
         });
 
         tx.nonce = senderNonce;
-        tx.gasLimit = gasLimit;
+        tx.gasLimit = gasLimit;  // Set dynamic gas limit
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status
+        // Wait for transaction confirmation using polling logic
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -248,15 +264,20 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce, 
 // Route for NFT transfers
 app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
-        const { recipient, tokenIdentifier, tokenNonce, amount, qty } = req.body;
+        const { recipient, tokenIdentifier, tokenNonce } = req.body;
         const pemContent = getPemContent(req);
-        const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce, amount, qty);
+
+        // Log the payload received from the request
+        console.log('Request Body:', req.body);
+
+        const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce);
         res.json({ result });
     } catch (error) {
         console.error('Error executing NFT transaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // --------------- SFT Transfer Logic --------------- //
 
