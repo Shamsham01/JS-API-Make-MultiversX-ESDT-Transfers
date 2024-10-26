@@ -260,6 +260,15 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
 
 // --------------- SFT Transfer Logic --------------- //
 
+// Function to validate amount and qty before conversion to BigInt
+const validateNumberInput = (value, fieldName) => {
+    const numValue = Number(value);
+    if (isNaN(numValue) || numValue <= 0) {
+        throw new Error(`Invalid ${fieldName} provided. It must be a positive number.`);
+    }
+    return numValue;
+};
+
 // Function to send SFT tokens with dynamic gas limit and polling
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, qty) => {
     try {
@@ -270,14 +279,18 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
+        // Validate the amount and qty inputs before proceeding
+        const validatedAmount = validateNumberInput(amount, "amount");
+        const validatedQty = validateNumberInput(qty, "quantity");
+
         const decimals = 0;  // Assume SFTs have 0 decimals by default
-        const adjustedAmount = BigInt(amount) * BigInt(10 ** decimals);  // Adjust amount based on decimals
+        const adjustedAmount = BigInt(validatedAmount) * BigInt(10 ** decimals);
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Calculate total gas limit based on qty (this is for multiple assets, if qty is > 1)
-        const gasLimit = BigInt(calculateSftGasLimit(qty));
+        // Calculate total gas limit based on qty
+        const gasLimit = BigInt(calculateSftGasLimit(validatedQty));
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -285,7 +298,7 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce, q
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
-                    amount: adjustedAmount  // Amount in adjusted value based on decimals
+                    amount: adjustedAmount
                 })
             ]
         });
@@ -317,6 +330,7 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 
 // --------------- Smart Contract Call Logic --------------- //
