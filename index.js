@@ -356,6 +356,11 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
+// Helper function to ensure hex values have even length
+const ensureEvenHexLength = (hexValue) => {
+    return hexValue.length % 2 === 0 ? hexValue : '0' + hexValue;
+};
+
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker) => {
     try {
@@ -364,33 +369,26 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
 
         let dataField;
         let normalizedQty = qty;
-        let gasLimit;
 
         if (actionType === "proposeAsyncCall") {
             // Normalize quantity based on token decimals
             const decimals = await getTokenDecimals(tokenTicker);
             normalizedQty = convertAmountToBlockchainValue(qty, decimals);
+            const qtyHex = ensureEvenHexLength(BigInt(normalizedQty).toString(16));
+            const tokenTickerHex = ensureEvenHexLength(Buffer.from(tokenTicker, 'utf-8').toString('hex'));
 
-            // Construct payload for proposeAsyncCall with normalized quantity
-            dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTicker}@${BigInt(normalizedQty).toString(16)}`;
-
-            // Set a specific gas limit for proposeAsyncCall to avoid mini-block limit issues
-            gasLimit = BigInt(10_000_000);  // Adjust based on network requirements
-
+            dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTickerHex}@${qtyHex}`;
         } else if (actionType === "giveaway") {
             const receiverAddress = new Address(receiver);
-            const receiverHex = receiverAddress.hex();
-            const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
+            const receiverHex = ensureEvenHexLength(receiverAddress.hex());
+            const qtyHex = ensureEvenHexLength(BigInt(qty).toString(16).padStart(2, '0'));
 
-            // Construct payload for giveaway
             dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
-
-            // Set a general gas limit for giveaway, depending on the quantity
-            gasLimit = BigInt(calculateNftGasLimit(qty)); // Modify as per giveaway needs
         } else {
             throw new Error(`Unsupported actionType: ${actionType}`);
         }
 
+        const gasLimit = actionType === "proposeAsyncCall" ? 10000000n : BigInt(calculateNftGasLimit(qty));
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
@@ -415,6 +413,7 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
         throw new Error('Smart contract call failed: ' + error.message);
     }
 };
+
 
 // Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
