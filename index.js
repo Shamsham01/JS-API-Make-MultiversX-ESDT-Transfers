@@ -356,11 +356,6 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
-// Helper function to ensure hex values have even length
-const ensureEvenHexLength = (hexValue) => {
-    return hexValue.length % 2 === 0 ? hexValue : '0' + hexValue;
-};
-
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker) => {
     try {
@@ -374,20 +369,23 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
             // Normalize quantity based on token decimals
             const decimals = await getTokenDecimals(tokenTicker);
             normalizedQty = convertAmountToBlockchainValue(qty, decimals);
-            const qtyHex = ensureEvenHexLength(BigInt(normalizedQty).toString(16));
-            const tokenTickerHex = ensureEvenHexLength(Buffer.from(tokenTicker, 'utf-8').toString('hex'));
 
-            dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTickerHex}@${qtyHex}`;
+            // Convert normalizedQty to hex with padding
+            const normalizedQtyHex = BigInt(normalizedQty).toString(16).padStart(32, '0'); // 32 hex digits for padding
+
+            // Construct the dataField for proposeAsyncCall
+            dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTicker}@${normalizedQtyHex}`;
         } else if (actionType === "giveaway") {
             const receiverAddress = new Address(receiver);
-            const receiverHex = ensureEvenHexLength(receiverAddress.hex());
-            const qtyHex = ensureEvenHexLength(BigInt(qty).toString(16).padStart(2, '0'));
-
+            const receiverHex = receiverAddress.hex();
+            const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
+            
             dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
         } else {
             throw new Error(`Unsupported actionType: ${actionType}`);
         }
 
+        // Set gas limit specifically for proposeAsyncCall interaction
         const gasLimit = actionType === "proposeAsyncCall" ? 10000000n : BigInt(calculateNftGasLimit(qty));
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
@@ -414,17 +412,11 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
     }
 };
 
-
 // Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, actionType, endpoint, receiver, qty, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
-
-        if (!actionType) {
-            throw new Error('actionType is required for scCall');
-        }
-
         const result = await executeScCall(pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker);
         res.json({ result });
     } catch (error) {
@@ -432,6 +424,7 @@ app.post('/execute/scCall', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // Start the server
 app.listen(PORT, () => {
