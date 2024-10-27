@@ -356,33 +356,40 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
-
 // --------------- Smart Contract Call Logic --------------- //
-const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
+const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
-        if (isNaN(qty) || qty <= 0) {
-            throw new Error('Invalid quantity provided for smart contract call.');
+        let dataField;
+        let normalizedQty = qty;
+
+        if (actionType === "proposeAsyncCall") {
+            // Normalize quantity based on token decimals
+            const decimals = await getTokenDecimals(tokenTicker);
+            normalizedQty = convertAmountToBlockchainValue(qty, decimals);
+
+            dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTicker}@${BigInt(normalizedQty).toString(16)}`;
+        } else if (actionType === "giveaway") {
+            const receiverAddress = new Address(receiver);
+            const receiverHex = receiverAddress.hex();
+            const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
+            
+            dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
+        } else {
+            throw new Error(`Unsupported actionType: ${actionType}`);
         }
 
-        const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
-        const receiverAddress = new Address(receiver);
-        const receiverHex = receiverAddress.hex();
-
         const gasLimit = BigInt(calculateNftGasLimit(qty));
-
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
-
-        const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
         const tx = new Transaction({
             nonce: senderNonce,
             receiver: new Address(scAddress),
             sender: senderAddress,
-            value: '0',
+            value: '0', // No EGLD transfer
             gasLimit: gasLimit,
             data: new TransactionPayload(dataField),
             chainID: '1',
@@ -403,15 +410,16 @@ const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => 
 // Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
-        const { scAddress, endpoint, receiver, qty } = req.body;
+        const { scAddress, actionType, endpoint, receiver, qty, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
-        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
+        const result = await executeScCall(pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker);
         res.json({ result });
     } catch (error) {
         console.error('Error executing smart contract call:', error);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // Start the server
 app.listen(PORT, () => {
