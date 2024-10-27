@@ -356,54 +356,70 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
-// Helper function to ensure hex values have even length
-const ensureEvenHexLength = (hexValue) => {
-    return hexValue.length % 2 === 0 ? hexValue : '0' + hexValue;
+const { bech32 } = require('bech32');
+
+// Helper function to convert Bech32 address to Hexadecimal
+const convertBech32ToHex = (bech32Address) => {
+    const decoded = bech32.decode(bech32Address);
+    const hex = Buffer.from(bech32.fromWords(decoded.words)).toString('hex');
+    return hex;
 };
 
-// Function to convert a string to its hex representation
-const toHex = (value) => {
-    return Buffer.from(value, 'utf8').toString('hex');
+// Helper function to encode a string to hexadecimal format
+const stringToHex = (str) => {
+    return Buffer.from(str, 'utf8').toString('hex');
 };
 
-// --------------- Smart Contract Call Logic --------------- //
-const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker) => {
+// Function to calculate blockchain amount based on token decimals
+const calculateBlockchainAmount = async (qty, tokenTicker) => {
+    const decimals = await getTokenDecimals(tokenTicker); // Fetch token decimals
+    const factor = new BigNumber(10).pow(decimals);
+    const blockchainAmount = new BigNumber(qty).multipliedBy(factor);
+    return blockchainAmount.toFixed(0); // Return as a string in decimal format
+};
+
+// Construct payload for proposeAsyncCall
+const constructProposeAsyncCallPayload = async (scAddress, receiver, tokenTicker, qty) => {
+    // Convert components to the required format
+    const scAddressHex = convertBech32ToHex(scAddress); // SC address in hex
+    const receiverHex = convertBech32ToHex(receiver);    // Receiver address in hex
+    const tokenTickerHex = stringToHex(tokenTicker);     // Token ticker in hex
+
+    // Calculate the blockchain amount including decimals and convert to hex
+    const blockchainAmount = await calculateBlockchainAmount(qty, tokenTicker);
+    const amountHex = ensureEvenHexLength(BigInt(blockchainAmount).toString(16)); // Amount in hex
+
+    // Construct payload in the specified format
+    return `proposeAsyncCall@${scAddressHex}@@${stringToHex("ESDTTransfer")}@${tokenTickerHex}@${amountHex}`;
+};
+
+// Main Smart Contract Call function
+const executeScCall = async (pemContent, scAddress, actionType, receiver, tokenTicker, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
-        // Initialize dataField
         let dataField;
-        let normalizedQty = qty;
-
         if (actionType === "proposeAsyncCall") {
-            // Convert each component to HEX format and ensure even length
-            const scAddressHex = ensureEvenHexLength(toHex(receiver)); // Receiver address in hex
-            const tokenTickerHex = ensureEvenHexLength(toHex(tokenTicker)); // Token ticker in hex
-
-            // Normalize quantity based on token decimals and convert to hex
-            const decimals = await getTokenDecimals(tokenTicker);
-            normalizedQty = convertAmountToBlockchainValue(qty, decimals);
-            const normalizedQtyHex = ensureEvenHexLength(BigInt(normalizedQty).toString(16));
-
-            // Construct the dataField for proposeAsyncCall
-            dataField = `proposeAsyncCall@${scAddressHex}@@ESDTTransfer@${tokenTickerHex}@${normalizedQtyHex}`;
+            dataField = await constructProposeAsyncCallPayload(scAddress, receiver, tokenTicker, qty);
+        } else if (actionType === "giveaway") {
+            const receiverAddress = new Address(receiver);
+            const receiverHex = receiverAddress.hex();
+            const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
+            dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
         } else {
             throw new Error(`Unsupported actionType: ${actionType}`);
         }
 
-        console.log("Constructed dataField:", dataField); // Debug log for dataField
-
-        // Set gas limit specifically for proposeAsyncCall
-        const gasLimit = 10000000n;
+        const gasLimit = actionType === 'proposeAsyncCall' ? 10000000n : BigInt(calculateNftGasLimit(qty));
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
         const tx = new Transaction({
             nonce: senderNonce,
-            receiver: new Address(scAddress), // Main contract address
+            receiver: new Address(scAddress),
             sender: senderAddress,
-            value: '0', // Sending 0 EGLD
+            value: '0', // No EGLD transfer
             gasLimit: gasLimit,
             data: new TransactionPayload(dataField),
             chainID: '1',
@@ -426,14 +442,13 @@ app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, actionType, endpoint, receiver, qty, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
-        const result = await executeScCall(pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker);
+        const result = await executeScCall(pemContent, scAddress, actionType, receiver, tokenTicker, qty);
         res.json({ result });
     } catch (error) {
         console.error('Error executing smart contract call:', error);
         res.status(500).json({ error: error.message });
     }
 });
-
 
 // Start the server
 app.listen(PORT, () => {
