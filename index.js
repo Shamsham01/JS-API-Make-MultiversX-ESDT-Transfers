@@ -357,46 +357,45 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
 });
 
 
-// --------------- Smart Contract Call Logic with Dynamic Action Handling --------------- //
-const executeScCall = async (pemContent, scAddress, actionType, receiver, qty, tokenTicker) => {
+// --------------- Smart Contract Call Logic --------------- //
+const executeScCall = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
+
+        if (isNaN(qty) || qty <= 0) {
+            throw new Error('Invalid quantity provided for smart contract call.');
+        }
+
+        const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
         const receiverAddress = new Address(receiver);
         const receiverHex = receiverAddress.hex();
+
+        const gasLimit = BigInt(calculateNftGasLimit(qty));
 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
-        let dataField = "";
-        if (actionType === "giveaway") {
-            const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
-            dataField = `giveaway@${receiverHex}@${qtyHex}`;
-        } else if (actionType === "proposeAsyncCall") {
-            const qtyHex = BigInt(qty * Math.pow(10, 18)).toString(16).padStart(2, '0'); // Normalizing qty
-            const tokenHex = Buffer.from(tokenTicker).toString('hex');
-            dataField = `proposeAsyncCall@${receiverHex}@${tokenHex}@${qtyHex}`;
-        } else {
-            throw new Error(`Unsupported actionType: ${actionType}`);
-        }
+        const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
         const tx = new Transaction({
             nonce: senderNonce,
             receiver: new Address(scAddress),
             sender: senderAddress,
             value: '0',
-            gasLimit: BigInt(calculateNftGasLimit(1)),
+            gasLimit: gasLimit,
             data: new TransactionPayload(dataField),
-            chainID: '1'
+            chainID: '1',
         });
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
         // Poll transaction status
-        return await checkTransactionStatus(txHash.toString());
+        const finalStatus = await checkTransactionStatus(txHash.toString());
+        return finalStatus;
     } catch (error) {
-        console.error('Error executing SC call:', error);
+        console.error('Error executing smart contract call:', error);
         throw new Error('Smart contract call failed: ' + error.message);
     }
 };
@@ -404,12 +403,12 @@ const executeScCall = async (pemContent, scAddress, actionType, receiver, qty, t
 // Route for smart contract call
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
-        const { scAddress, actionType, receiver, qty, tokenTicker } = req.body;
+        const { scAddress, endpoint, receiver, qty } = req.body;
         const pemContent = getPemContent(req);
-        const result = await executeScCall(pemContent, scAddress, actionType, receiver, qty, tokenTicker);
+        const result = await executeScCall(pemContent, scAddress, endpoint, receiver, qty);
         res.json({ result });
     } catch (error) {
-        console.error('Error executing SC call:', error);
+        console.error('Error executing smart contract call:', error);
         res.status(500).json({ error: error.message });
     }
 });
