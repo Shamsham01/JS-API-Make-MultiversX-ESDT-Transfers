@@ -361,45 +361,49 @@ const ensureEvenHexLength = (hexValue) => {
     return hexValue.length % 2 === 0 ? hexValue : '0' + hexValue;
 };
 
+// Function to convert a string to its hex representation
+const toHex = (value) => {
+    return Buffer.from(value, 'utf8').toString('hex');
+};
+
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
+        // Initialize dataField
         let dataField;
-        let normalizedQty;
+        let normalizedQty = qty;
 
         if (actionType === "proposeAsyncCall") {
-            // Fetch and normalize quantity based on token decimals
+            // Convert each component to HEX format and ensure even length
+            const scAddressHex = ensureEvenHexLength(toHex(receiver)); // Receiver address in hex
+            const tokenTickerHex = ensureEvenHexLength(toHex(tokenTicker)); // Token ticker in hex
+
+            // Normalize quantity based on token decimals and convert to hex
             const decimals = await getTokenDecimals(tokenTicker);
             normalizedQty = convertAmountToBlockchainValue(qty, decimals);
-            const normalizedQtyHex = ensureEvenHexLength(BigInt(normalizedQty).toString(16).padStart(32, '0'));
+            const normalizedQtyHex = ensureEvenHexLength(BigInt(normalizedQty).toString(16));
 
-            // Construct dataField specifically for proposeAsyncCall
-            dataField = `proposeAsyncCall@${ensureEvenHexLength(scAddress)}@@ESDTTransfer@${tokenTicker}@${normalizedQtyHex}`;
-        } else if (actionType === "giveaway") {
-            const receiverAddress = new Address(receiver);
-            const receiverHex = ensureEvenHexLength(receiverAddress.hex());
-            const qtyHex = ensureEvenHexLength(BigInt(qty).toString(16).padStart(2, '0'));
-
-            dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
+            // Construct the dataField for proposeAsyncCall
+            dataField = `proposeAsyncCall@${scAddressHex}@@ESDTTransfer@${tokenTickerHex}@${normalizedQtyHex}`;
         } else {
             throw new Error(`Unsupported actionType: ${actionType}`);
         }
 
         console.log("Constructed dataField:", dataField); // Debug log for dataField
 
-        // Set gas limit based on actionType
-        const gasLimit = actionType === "proposeAsyncCall" ? 10000000n : BigInt(calculateNftGasLimit(qty));
+        // Set gas limit specifically for proposeAsyncCall
+        const gasLimit = 10000000n;
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
         const tx = new Transaction({
             nonce: senderNonce,
-            receiver: new Address(scAddress),
+            receiver: new Address(scAddress), // Main contract address
             sender: senderAddress,
-            value: '0', // No EGLD transfer
+            value: '0', // Sending 0 EGLD
             gasLimit: gasLimit,
             data: new TransactionPayload(dataField),
             chainID: '1',
