@@ -370,18 +370,21 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
             const decimals = await getTokenDecimals(tokenTicker);
             normalizedQty = convertAmountToBlockchainValue(qty, decimals);
 
+            // Construct payload for proposeAsyncCall with normalized quantity
             dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTicker}@${BigInt(normalizedQty).toString(16)}`;
         } else if (actionType === "giveaway") {
             const receiverAddress = new Address(receiver);
             const receiverHex = receiverAddress.hex();
             const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
-            
+
+            // Construct payload for giveaway
             dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
         } else {
             throw new Error(`Unsupported actionType: ${actionType}`);
         }
 
-        const gasLimit = BigInt(calculateNftGasLimit(qty));
+        // Set gas limit based on the normalized quantity
+        const gasLimit = BigInt(calculateNftGasLimit(normalizedQty));
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
@@ -412,6 +415,11 @@ app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
         const { scAddress, actionType, endpoint, receiver, qty, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
+
+        if (!actionType) {
+            throw new Error('actionType is required for scCall');
+        }
+
         const result = await executeScCall(pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker);
         res.json({ result });
     } catch (error) {
@@ -419,7 +427,6 @@ app.post('/execute/scCall', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
 
 // Start the server
 app.listen(PORT, () => {
