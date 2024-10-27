@@ -368,29 +368,29 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
         const senderAddress = signer.getAddress();
 
         let dataField;
-        let normalizedQty = qty;
+        let normalizedQty;
 
         if (actionType === "proposeAsyncCall") {
-            // Normalize quantity based on token decimals
+            // Fetch and normalize quantity based on token decimals
             const decimals = await getTokenDecimals(tokenTicker);
             normalizedQty = convertAmountToBlockchainValue(qty, decimals);
-
-            // Convert normalizedQty to hex with padding and ensure even length
             const normalizedQtyHex = ensureEvenHexLength(BigInt(normalizedQty).toString(16).padStart(32, '0'));
 
-            // Construct the dataField for proposeAsyncCall
-            dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTicker}@${normalizedQtyHex}`;
+            // Construct dataField specifically for proposeAsyncCall
+            dataField = `proposeAsyncCall@${ensureEvenHexLength(scAddress)}@@ESDTTransfer@${tokenTicker}@${normalizedQtyHex}`;
         } else if (actionType === "giveaway") {
             const receiverAddress = new Address(receiver);
             const receiverHex = ensureEvenHexLength(receiverAddress.hex());
             const qtyHex = ensureEvenHexLength(BigInt(qty).toString(16).padStart(2, '0'));
-            
+
             dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
         } else {
             throw new Error(`Unsupported actionType: ${actionType}`);
         }
 
-        // Set gas limit specifically for proposeAsyncCall interaction
+        console.log("Constructed dataField:", dataField); // Debug log for dataField
+
+        // Set gas limit based on actionType
         const gasLimit = actionType === "proposeAsyncCall" ? 10000000n : BigInt(calculateNftGasLimit(qty));
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
@@ -416,6 +416,19 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
         throw new Error('Smart contract call failed: ' + error.message);
     }
 };
+
+// Route for smart contract call
+app.post('/execute/scCall', checkToken, async (req, res) => {
+    try {
+        const { scAddress, actionType, endpoint, receiver, qty, tokenTicker } = req.body;
+        const pemContent = getPemContent(req);
+        const result = await executeScCall(pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker);
+        res.json({ result });
+    } catch (error) {
+        console.error('Error executing smart contract call:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 
 // Start the server
