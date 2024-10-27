@@ -364,6 +364,7 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
 
         let dataField;
         let normalizedQty = qty;
+        let gasLimit;
 
         if (actionType === "proposeAsyncCall") {
             // Normalize quantity based on token decimals
@@ -372,6 +373,10 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
 
             // Construct payload for proposeAsyncCall with normalized quantity
             dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTicker}@${BigInt(normalizedQty).toString(16)}`;
+
+            // Set a specific gas limit for proposeAsyncCall to avoid mini-block limit issues
+            gasLimit = BigInt(10_000_000);  // Adjust based on network requirements
+
         } else if (actionType === "giveaway") {
             const receiverAddress = new Address(receiver);
             const receiverHex = receiverAddress.hex();
@@ -379,12 +384,13 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
 
             // Construct payload for giveaway
             dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
+
+            // Set a general gas limit for giveaway, depending on the quantity
+            gasLimit = BigInt(calculateNftGasLimit(qty)); // Modify as per giveaway needs
         } else {
             throw new Error(`Unsupported actionType: ${actionType}`);
         }
 
-        // Set gas limit based on the normalized quantity
-        const gasLimit = BigInt(calculateNftGasLimit(normalizedQty));
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
