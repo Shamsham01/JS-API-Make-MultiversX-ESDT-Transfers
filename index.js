@@ -356,6 +356,11 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
+// Helper function to ensure hex values have even length
+const ensureEvenHexLength = (hexValue) => {
+    return hexValue.length % 2 === 0 ? hexValue : '0' + hexValue;
+};
+
 // --------------- Smart Contract Call Logic --------------- //
 const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker) => {
     try {
@@ -370,15 +375,15 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
             const decimals = await getTokenDecimals(tokenTicker);
             normalizedQty = convertAmountToBlockchainValue(qty, decimals);
 
-            // Convert normalizedQty to hex with padding
-            const normalizedQtyHex = BigInt(normalizedQty).toString(16).padStart(32, '0'); // 32 hex digits for padding
+            // Convert normalizedQty to hex with padding and ensure even length
+            const normalizedQtyHex = ensureEvenHexLength(BigInt(normalizedQty).toString(16).padStart(32, '0'));
 
             // Construct the dataField for proposeAsyncCall
             dataField = `proposeAsyncCall@${scAddress}@@ESDTTransfer@${tokenTicker}@${normalizedQtyHex}`;
         } else if (actionType === "giveaway") {
             const receiverAddress = new Address(receiver);
-            const receiverHex = receiverAddress.hex();
-            const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
+            const receiverHex = ensureEvenHexLength(receiverAddress.hex());
+            const qtyHex = ensureEvenHexLength(BigInt(qty).toString(16).padStart(2, '0'));
             
             dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
         } else {
@@ -411,19 +416,6 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
         throw new Error('Smart contract call failed: ' + error.message);
     }
 };
-
-// Route for smart contract call
-app.post('/execute/scCall', checkToken, async (req, res) => {
-    try {
-        const { scAddress, actionType, endpoint, receiver, qty, tokenTicker } = req.body;
-        const pemContent = getPemContent(req);
-        const result = await executeScCall(pemContent, scAddress, actionType, endpoint, receiver, qty, tokenTicker);
-        res.json({ result });
-    } catch (error) {
-        console.error('Error executing smart contract call:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
 
 
 // Start the server
