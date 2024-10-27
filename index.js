@@ -365,6 +365,11 @@ const convertBech32ToHex = (bech32Address) => {
     return hex;
 };
 
+// Helper function to ensure hex values have an even length
+const ensureEvenHexLength = (hexValue) => {
+    return hexValue.length % 2 === 0 ? hexValue : '0' + hexValue;
+};
+
 // Helper function to encode a string to hexadecimal format
 const stringToHex = (str) => {
     return Buffer.from(str, 'utf8').toString('hex');
