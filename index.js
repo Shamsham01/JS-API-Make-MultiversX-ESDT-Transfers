@@ -399,7 +399,7 @@ const constructProposeAsyncCallPayload = async (scAddress, receiver, tokenTicker
 };
 
 // Main Smart Contract Call function
-const executeScCall = async (pemContent, scAddress, actionType, receiver, tokenTicker, qty) => {
+const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, tokenTicker, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
@@ -424,7 +424,7 @@ const executeScCall = async (pemContent, scAddress, actionType, receiver, tokenT
             nonce: senderNonce,
             receiver: new Address(scAddress),
             sender: senderAddress,
-            value: '0', // No EGLD transfer
+            value: '0',
             gasLimit: gasLimit,
             data: new TransactionPayload(dataField),
             chainID: '1',
@@ -433,7 +433,6 @@ const executeScCall = async (pemContent, scAddress, actionType, receiver, tokenT
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -442,12 +441,12 @@ const executeScCall = async (pemContent, scAddress, actionType, receiver, tokenT
     }
 };
 
-// Route for smart contract call
+// Route for smart contract calls
 app.post('/execute/scCall', checkToken, async (req, res) => {
     try {
-        const { scAddress, actionType, endpoint, receiver, qty, tokenTicker } = req.body;
+        const { scAddress, actionType, endpoint, receiver, tokenTicker, qty } = req.body;
         const pemContent = getPemContent(req);
-        const result = await executeScCall(pemContent, scAddress, actionType, receiver, tokenTicker, qty);
+        const result = await executeScCall(pemContent, scAddress, actionType, endpoint, receiver, tokenTicker, qty);
         res.json({ result });
     } catch (error) {
         console.error('Error executing smart contract call:', error);
