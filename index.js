@@ -436,7 +436,7 @@ const stringToHex = (str) => {
     return Buffer.from(str, 'utf8').toString('hex');
 };
 
-// Function to calculate blockchain amount based on token decimals
+// Helper function to calculate the blockchain amount based on token decimals and convert to hex
 const calculateBlockchainAmount = async (qty, tokenTicker) => {
     const decimals = await getTokenDecimals(tokenTicker); // Fetch token decimals
     const factor = new BigNumber(10).pow(decimals);
@@ -444,16 +444,14 @@ const calculateBlockchainAmount = async (qty, tokenTicker) => {
     return blockchainAmount.toFixed(0); // Return as a string in decimal format
 };
 
-// Construct payload for proposeAsyncCall with correct receiver address
+// Construct payload for proposeAsyncCall with the correct receiver address and amount in hex
 const constructProposeAsyncCallPayload = async (receiver, tokenTicker, qty) => {
     console.log(`Constructing payload with tokenTicker: ${tokenTicker}, receiver: ${receiver}, qty: ${qty}`);
 
     const receiverHex = convertBech32ToHex(receiver);      // Actual receiver address in hex
     const tokenTickerHex = stringToHex(tokenTicker);       // Token ticker in hex
-    const blockchainAmount = await calculateBlockchainAmount(qty, tokenTicker);
-    const amountHex = ensureEvenHexLength(BigInt(blockchainAmount).toString(16)); // Amount in hex
 
-     // Calculate the blockchain amount including decimals and convert to hex
+    // Calculate the blockchain amount including decimals and convert to hex
     const blockchainAmount = await calculateBlockchainAmount(qty, tokenTicker);
     const amountHex = ensureEvenHexLength(BigInt(blockchainAmount).toString(16)); // Amount in hex
 
@@ -469,7 +467,8 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
 
         let dataField;
         if (actionType === "proposeAsyncCall") {
-            dataField = await constructProposeAsyncCallPayload(scAddress, receiver, tokenTicker, qty);
+            // Pass receiver to constructProposeAsyncCallPayload instead of scAddress
+            dataField = await constructProposeAsyncCallPayload(receiver, tokenTicker, qty);
         } else if (actionType === "giveaway") {
             const receiverAddress = new Address(receiver);
             const receiverHex = receiverAddress.hex();
