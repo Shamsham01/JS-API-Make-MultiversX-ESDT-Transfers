@@ -456,9 +456,8 @@ const constructProposeAsyncCallPayload = async (scAddress, receiver, tokenTicker
     const amountHex = ensureEvenHexLength(BigInt(blockchainAmount).toString(16)); // Amount in hex
 
     // Construct payload in the correct format for proposeAsyncCall
-    return `proposeAsyncCall@<Receiver Address>@ESDTTransfer@<Token Ticker>@<Amount>`;
+    return `proposeAsyncCall@${receiverHex}@${stringToHex("ESDTTransfer")}@${tokenTickerHex}@${amountHex}`;
 };
-
 
 // Main Smart Contract Call function
 const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, tokenTicker, qty) => {
