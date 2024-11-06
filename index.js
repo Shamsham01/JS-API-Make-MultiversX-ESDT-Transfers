@@ -445,17 +445,18 @@ const calculateBlockchainAmount = async (qty, tokenTicker) => {
 };
 
 // Construct payload for proposeAsyncCall with correct receiver address
-const constructProposeAsyncCallPayload = async (receiver, tokenTicker, qty) => {
+const constructProposeAsyncCallPayload = async (scAddress, receiver, tokenTicker, qty) => {
     // Convert components to the required format
-    const receiverHex = convertBech32ToHex(receiver);      // Actual receiver address in hex
-    const tokenTickerHex = stringToHex(tokenTicker);       // Token ticker in hex
+    const scAddressHex = convertBech32ToHex(scAddress);   // SC address in hex
+    const receiverHex = convertBech32ToHex(receiver);     // Actual receiver address in hex
+    const tokenTickerHex = stringToHex(tokenTicker);      // Token ticker in hex
 
     // Calculate the blockchain amount including decimals and convert to hex
     const blockchainAmount = await calculateBlockchainAmount(qty, tokenTicker);
     const amountHex = ensureEvenHexLength(BigInt(blockchainAmount).toString(16)); // Amount in hex
 
     // Construct payload in the correct format for proposeAsyncCall
-    return `proposeAsyncCall@${receiverHex}@ESDTTransfer@${tokenTickerHex}@${amountHex}`;
+    return `proposeAsyncCall@${receiverHex}@${stringToHex("ESDTTransfer")}@${tokenTickerHex}@${amountHex}`;
 };
 
 // Main Smart Contract Call function
