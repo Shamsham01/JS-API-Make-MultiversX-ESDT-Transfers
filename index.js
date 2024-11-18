@@ -35,7 +35,7 @@ const getPemContent = (req) => {
 };
 
 // --------------- Transaction Confirmation Logic (Polling) --------------- //
-const checkTransactionStatus = async (txHash, retries = 10, delay = 9000) => {
+const checkTransactionStatus = async (txHash, retries = 20, delay = 7000) => {
     for (let i = 0; i < retries; i++) {
         const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
         const response = await fetch(txStatusUrl);
@@ -327,9 +327,6 @@ app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, tokenNonce } = req.body;
         const pemContent = getPemContent(req);
-
-        // Log the payload received from the request
-        console.log('Request Body:', req.body);
 
         const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce);
         res.json({ result });
