@@ -288,21 +288,53 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
     const senderAddress = signer.getAddress();
 
     const tokenTransfers = await Promise.all(
-      tokens.map(async (token) => {
-        const response = await axios.get(`${publicApi[chain]}/tokens/${token.id}`);
-        const { decimals, nonce, type } = response.data;
+  tokens.map(async (token) => {
+    const tokenIdSegmentsLength = token.id.split('-').length;
 
-        if (type === 'FungibleESDT') {
-          return TokenTransfer.fungibleFromAmount(token.id, token.amount, decimals);
-        } else if (type === 'NonFungibleESDT') {
-          return TokenTransfer.nonFungible(token.id, nonce);
-        } else if (type === 'SemiFungibleESDT') {
-          return TokenTransfer.semiFungible(token.id, nonce, token.amount);
-        } else {
-          throw new Error(`Unsupported token type: ${type}`);
-        }
-      })
-    );
+    let tokenData;
+    if (tokenIdSegmentsLength === 2) {
+      // Fungible Token (ESDT)
+      const { data } = await axios.get(`${publicApi[chain]}/tokens/${token.id}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      });
+      tokenData = data;
+    } else if (tokenIdSegmentsLength === 3) {
+      // Non-Fungible or Semi-Fungible Token (NFT or SFT)
+      const { data } = await axios.get(`${publicApi[chain]}/nfts/${token.id}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+      });
+      tokenData = data;
+    } else {
+      throw new Error(`Invalid token ID format: ${token.id}`);
+    }
+
+    const { nonce, decimals, ticker, type } = tokenData;
+
+    if (type === 'FungibleESDT') {
+      return TokenTransfer.fungibleFromAmount(token.id, token.amount, decimals);
+    }
+
+    if (type === 'NonFungibleESDT') {
+      return TokenTransfer.nonFungible(ticker, nonce);
+    }
+
+    if (type === 'SemiFungibleESDT') {
+      return TokenTransfer.semiFungible(ticker, nonce, token.amount);
+    }
+
+    if (type === 'MetaESDT') {
+      return TokenTransfer.metaEsdtFromAmount(ticker, nonce, token.amount, decimals);
+    }
+
+    throw new Error(`Unsupported token type: ${type}`);
+  })
+);
 
     const factory = new TransferTransactionsFactory(new TransactionsFactoryConfig({ chainID: chain === 'mainnet' ? '1' : 'D' }));
     const tx = factory.createMultiESDTNFTTransfer({
