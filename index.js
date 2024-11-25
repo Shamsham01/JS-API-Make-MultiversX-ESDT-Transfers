@@ -457,111 +457,104 @@ app.post('/execute/scCall', checkToken, async (req, res) => {
     }
 });
 
+import {
+  TokenTransfer,
+  GasEstimator,
+  TransferTransactionsFactory,
+  Address,
+  TransactionPayload,
+} from '@multiversx/sdk-core';
+import axios from 'axios';
+
 app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
-    try {
-        const { walletPem, transfers, scCall } = req.body;
+  try {
+    const { walletPem, recipient, tokens } = req.body;
 
-        if (!walletPem || !Array.isArray(transfers)) {
-            return res.status(400).json({ error: 'Invalid request payload' });
-        }
-
-        const signer = UserSigner.fromPem(walletPem);
-        const senderAddress = signer.getAddress();
-        const accountOnNetwork = await provider.getAccount(senderAddress);
-        const senderNonce = accountOnNetwork.nonce;
-
-        const txs = [];
-
-        // Handle Token Transfers
-        for (const transfer of transfers) {
-            const { type, recipient, amount, token, nonce } = transfer;
-
-            let tx;
-            if (type === 'EGLD') {
-                const amountInWEI = convertEGLDToWEI(amount);
-                tx = new Transaction({
-                    nonce: senderNonce + txs.length,
-                    receiver: new Address(recipient),
-                    sender: senderAddress,
-                    value: BigInt(amountInWEI),
-                    gasLimit: 50000n,
-                    chainID: '1'
-                });
-            } else if (type === 'ESDT') {
-                const decimals = await getTokenDecimals(token);
-                const blockchainAmount = convertAmountToBlockchainValue(amount, decimals);
-                const dataField = `ESDTTransfer@${stringToHex(token)}@${toHex(blockchainAmount)}`;
-                tx = new Transaction({
-                    nonce: senderNonce + txs.length,
-                    receiver: new Address(recipient),
-                    sender: senderAddress,
-                    value: '0',
-                    gasLimit: calculateEsdtGasLimit(),
-                    data: new TransactionPayload(dataField),
-                    chainID: '1'
-                });
-            } else if (type === 'SFT') {
-                const dataField = `ESDTNFTTransfer@${stringToHex(token)}@${toHex(nonce)}@${toHex(amount)}`;
-                tx = new Transaction({
-                    nonce: senderNonce + txs.length,
-                    receiver: new Address(recipient),
-                    sender: senderAddress,
-                    value: '0',
-                    gasLimit: calculateSftGasLimit(amount),
-                    data: new TransactionPayload(dataField),
-                    chainID: '1'
-                });
-            } else if (type === 'NFT') {
-                const dataField = `ESDTNFTTransfer@${stringToHex(token)}@${toHex(nonce)}@${toHex(1)}`;
-                tx = new Transaction({
-                    nonce: senderNonce + txs.length,
-                    receiver: new Address(recipient),
-                    sender: senderAddress,
-                    value: '0',
-                    gasLimit: calculateNftGasLimit(1),
-                    data: new TransactionPayload(dataField),
-                    chainID: '1'
-                });
-            } else {
-                throw new Error(`Unsupported token type: ${type}`);
-            }
-
-            await signer.sign(tx);
-            txs.push(tx);
-        }
-
-        // Handle SC Call if defined
-        if (scCall && scCall.scAddress && scCall.actionType && scCall.endpoint && scCall.receiver && scCall.amount) {
-            const receiverHex = convertBech32ToHex(scCall.receiver);
-            const amountHex = toHex(scCall.amount);
-
-            const scPayload = `${scCall.actionType}@${receiverHex}@${amountHex}`;
-            const scTx = new Transaction({
-                nonce: senderNonce + txs.length,
-                receiver: new Address(scCall.scAddress),
-                sender: senderAddress,
-                value: '0',
-                gasLimit: 10000000n,
-                data: new TransactionPayload(scPayload),
-                chainID: '1'
-            });
-
-            await signer.sign(scTx);
-            txs.push(scTx);
-        }
-
-        // Send all transactions
-        const txHashes = await Promise.all(txs.map((tx) => provider.sendTransaction(tx)));
-
-        res.json({
-            message: 'Transactions submitted successfully',
-            transactions: txHashes.map((hash) => hash.toString())
-        });
-    } catch (error) {
-        console.error('Error during multi-token transfer:', error);
-        res.status(500).json({ error: error.message });
+    if (!walletPem || !recipient || !tokens || !Array.isArray(tokens)) {
+      return res.status(400).json({ error: 'Invalid request payload' });
     }
+
+    const signer = UserSigner.fromPem(walletPem);
+    const senderAddress = signer.getAddress();
+
+    const tokenTransfers = await Promise.all(
+      tokens.map(async (token) => {
+        const tokenIdSegmentsLength = token.id.split('-').length;
+
+        let tokenData;
+        if (tokenIdSegmentsLength === 2) {
+          const { data } = await axios.get(
+            `${publicApi[chain]}/tokens/${token.id}`,
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+            }
+          );
+          tokenData = data;
+        } else if (tokenIdSegmentsLength === 3) {
+          const { data } = await axios.get(
+            `${publicApi[chain]}/nfts/${token.id}`,
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+            }
+          );
+          tokenData = data;
+        }
+
+        const { nonce, decimals, ticker, type } = tokenData;
+
+        if (type === 'FungibleESDT') {
+          return TokenTransfer.fungibleFromAmount(
+            token.id,
+            token.amount,
+            decimals
+          );
+        }
+
+        if (type === 'NonFungibleESDT') {
+          return TokenTransfer.nonFungible(ticker, nonce);
+        }
+
+        if (type === 'SemiFungibleESDT') {
+          return TokenTransfer.semiFungible(ticker, nonce, token.amount);
+        }
+
+        if (type === 'MetaESDT') {
+          return TokenTransfer.metaEsdtFromAmount(
+            ticker,
+            nonce,
+            token.amount,
+            decimals
+          );
+        }
+
+        throw new Error(`Unsupported token type: ${type}`);
+      })
+    );
+
+    const factory = new TransferTransactionsFactory(new GasEstimator());
+    const tx = factory.createMultiESDTNFTTransfer({
+      tokenTransfers,
+      sender: senderAddress,
+      destination: new Address(recipient),
+      chainID: '1', // Replace with your chain ID
+    });
+
+    await signer.sign(tx);
+    const txHash = await provider.sendTransaction(tx);
+
+    res.json({ message: 'Transaction submitted', txHash: txHash.toString() });
+  } catch (error) {
+    console.error('Error during multi-token transfer:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
+
 
 // Start the server
 app.listen(PORT, () => {
