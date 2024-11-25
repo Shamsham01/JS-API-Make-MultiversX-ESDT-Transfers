@@ -3,7 +3,7 @@ services:
     name: javascript-api
     env: node
     plan: free
-    buildCommand: 'npm install && npm install express body-parser axios'
+    buildCommand: 'npm install'
     startCommand: 'node index.js'
     envVars:
       - key: API_PROVIDER
@@ -12,5 +12,7 @@ services:
         value: "mainnet"
       - key: SECURE_TOKEN
         sync: false
+      - key: CHAIN_ID
+        value: "1" # Optional, specify if required
     autoDeploy: true
     region: frankfurt
