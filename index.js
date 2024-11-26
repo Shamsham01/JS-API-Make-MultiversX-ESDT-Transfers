@@ -311,17 +311,19 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
     // Process tokens and create transfers
     const tokenTransfers = await Promise.all(
       tokens.map(async (token) => {
+        console.log(`Processing token:`, token);
+
         let tokenData;
         let url;
 
+        // Determine URL based on token type
         const tokenIdSegments = token.id.split('-');
-
         if (tokenIdSegments.length === 2) {
           // ESDT Token
           url = `${publicApi[chain]}/tokens/${token.id}`;
         } else if (tokenIdSegments.length === 3 && token.nonce !== undefined) {
           // SFT/NFT Token with Nonce
-          const paddedNonce = token.nonce.toString().padStart(2, '0'); // Ensure nonce is padded correctly
+          const paddedNonce = token.nonce.toString().padStart(2, '0'); // Ensure nonce is padded
           url = `${publicApi[chain]}/nfts/${token.id}-${paddedNonce}`;
         } else {
           throw new Error(`Invalid token ID or missing nonce for token: ${JSON.stringify(token)}`);
@@ -389,7 +391,6 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
 
 
 // Start the server
