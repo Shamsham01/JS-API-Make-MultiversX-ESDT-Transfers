@@ -303,14 +303,17 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
             },
           });
           tokenData = data;
-        } else if (tokenIdSegmentsLength === 3 && token.nonce) {
-          // Non-Fungible or Semi-Fungible Token (NFT or SFT)
-          const { data } = await axios.get(`${publicApi[chain]}/nfts/${token.id}-${token.nonce}`, {
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-            },
-          });
+        } else if (tokenIdSegmentsLength === 3 && token.nonce !== undefined) {
+          // Semi-Fungible or Non-Fungible Token (NFT or SFT)
+          const { data } = await axios.get(
+            `${publicApi[chain]}/nfts/${token.id}-${String(token.nonce).padStart(2, '0')}`,
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+            }
+          );
           tokenData = data;
         } else {
           throw new Error(`Invalid token ID or missing nonce for token: ${token.id}`);
