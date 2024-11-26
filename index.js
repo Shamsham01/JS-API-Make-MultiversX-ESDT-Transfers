@@ -450,7 +450,7 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
     }
 };
 
-// Route for free NFT mint airdrop
+// Function for free NFT mint airdrop
 app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
@@ -463,12 +463,14 @@ app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
     }
 });
 
-// Route for Distributing Rewards to NFT Owners
+// Function for Distributing Rewards to NFT Owners
 app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
     try {
         console.log('Incoming request body:', req.body);
 
-        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply, pemContent } = req.body;
+        // Use the standardized getPemContent function to retrieve the PEM content
+        const pemContent = getPemContent(req);
+        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
 
         // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
@@ -478,10 +480,6 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         if (!tokenTicker || !baseAmount) {
             console.error('Token ticker and base amount are required.');
             return res.status(400).json({ error: 'Token ticker and base amount are required.' });
-        }
-        if (!pemContent) {
-            console.error('PEM file is required for signing transactions.');
-            return res.status(400).json({ error: 'PEM file is required for signing transactions.' });
         }
 
         const signer = UserSigner.fromPem(pemContent);
