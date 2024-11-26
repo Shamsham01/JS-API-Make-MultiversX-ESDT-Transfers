@@ -466,7 +466,7 @@ app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
 // Route for Distributing Rewards to NFT Owners
 app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
     try {
-        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply, walletPem } = req.body;
+        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply, pemContent } = req.body;
 
         // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
@@ -475,11 +475,11 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         if (!tokenTicker || !baseAmount) {
             return res.status(400).json({ error: 'Token ticker and base amount are required.' });
         }
-        if (!walletPem) {
+        if (!pemContent) {
             return res.status(400).json({ error: 'PEM file is required for signing transactions.' });
         }
 
-        const signer = UserSigner.fromPem(walletPem);
+        const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
         const accountOnNetwork = await provider.getAccount(senderAddress);
