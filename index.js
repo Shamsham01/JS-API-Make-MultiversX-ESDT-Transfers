@@ -320,13 +320,13 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
           url = `${publicApi[chain]}/tokens/${token.id}`;
         } else if (tokenIdSegments.length === 3 && token.nonce !== undefined) {
           // Semi-Fungible Token (SFT) or Non-Fungible Token (NFT)
-          const paddedNonce = token.nonce.toString().padStart(2, '0');
+          const paddedNonce = token.nonce.toString().padStart(2, '0'); // Ensure nonce is padded
           url = `${publicApi[chain]}/nfts/${token.id}-${paddedNonce}`;
         } else {
           throw new Error(`Invalid token ID or missing nonce for token: ${JSON.stringify(token)}`);
         }
 
-        console.log(`Fetching token data from: ${url}`);
+        console.log(`Fetching token data from: ${url}`); // Log the full URL
         tokenData = await retryRequest(() => axiosInstance.get(url)).then((response) => response.data);
 
         const { nonce, decimals, ticker, type } = tokenData;
