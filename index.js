@@ -463,6 +463,75 @@ app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
     }
 });
 
+// Route for Distributing Rewards to NFT Owners
+app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
+    try {
+        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply, walletPem } = req.body;
+
+        // Validate inputs
+        if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
+            return res.status(400).json({ error: 'Invalid owner stats provided.' });
+        }
+        if (!tokenTicker || !baseAmount) {
+            return res.status(400).json({ error: 'Token ticker and base amount are required.' });
+        }
+        if (!walletPem) {
+            return res.status(400).json({ error: 'PEM file is required for signing transactions.' });
+        }
+
+        const signer = UserSigner.fromPem(walletPem);
+        const senderAddress = signer.getAddress();
+
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const senderNonce = accountOnNetwork.nonce;
+
+        // Fetch token decimals
+        const decimals = await getTokenDecimals(tokenTicker);
+
+        // Prepare transactions
+        const results = [];
+        let currentNonce = senderNonce;
+
+        for (const { owner, tokensCount } of uniqueOwnerStats) {
+            const adjustedAmount = multiply
+                ? convertAmountToBlockchainValue(baseAmount * tokensCount, decimals)
+                : convertAmountToBlockchainValue(baseAmount, decimals);
+
+            const tx = new Transaction({
+                nonce: currentNonce++,
+                sender: senderAddress,
+                receiver: new Address(owner),
+                value: '0', // No EGLD is transferred
+                data: new TransactionPayload(
+                    `ESDTTransfer@${Buffer.from(tokenTicker).toString('hex')}@${BigInt(adjustedAmount).toString(16)}`
+                ),
+                gasLimit: calculateEsdtGasLimit(),
+                chainID: '1',
+            });
+
+            await signer.sign(tx);
+
+            try {
+                const txHash = await provider.sendTransaction(tx);
+                const finalStatus = await checkTransactionStatus(txHash.toString());
+                results.push({ owner, txHash: txHash.toString(), status: finalStatus.status });
+            } catch (error) {
+                console.error(`Error sending transaction to ${owner}:`, error.message);
+                results.push({ owner, error: error.message, status: 'failed' });
+            }
+        }
+
+        // Return transaction results
+        res.json({
+            message: 'Rewards distribution completed.',
+            results,
+        });
+    } catch (error) {
+        console.error('Error during rewards distribution:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
