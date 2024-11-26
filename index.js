@@ -468,7 +468,8 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
     try {
         console.log('Incoming request body:', req.body);
 
-        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply, pemContent } = req.body;
+        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
+        const pemContent = getPemContent(req);  // Use standardized validation
 
         // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
@@ -478,10 +479,6 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         if (!tokenTicker || !baseAmount) {
             console.error('Token ticker and base amount are required.');
             return res.status(400).json({ error: 'Token ticker and base amount are required.' });
-        }
-        if (!pemContent) {
-            console.error('PEM file is required for signing transactions.');
-            return res.status(400).json({ error: 'PEM file is required for signing transactions.' });
         }
 
         const signer = UserSigner.fromPem(pemContent);
