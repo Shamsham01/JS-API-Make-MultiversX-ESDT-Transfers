@@ -296,6 +296,7 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
       },
     });
 
+    // Helper: Retry mechanism
     const retryRequest = async (fn, retries = 3) => {
       for (let i = 0; i < retries; i++) {
         try {
@@ -307,6 +308,7 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
       }
     };
 
+    // Process tokens and create transfers
     const tokenTransfers = await Promise.all(
       tokens.map(async (token) => {
         let tokenData;
@@ -378,12 +380,16 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
     await signer.sign(tx);
     const txHash = await provider.sendTransaction(tx);
 
+    // Log success and respond
+    console.log(`Transaction successful. Hash: ${txHash}`);
     res.json({ message: 'Transaction submitted', txHash: txHash.toString() });
   } catch (error) {
+    // Log detailed error
     console.error('Error during multi-token transfer:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
+
 
 
 // Start the server
