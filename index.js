@@ -414,67 +414,18 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     }
 });
 
-const { bech32 } = require('bech32');
-
-// Helper function to convert Bech32 address to Hexadecimal
-const convertBech32ToHex = (bech32Address) => {
-    const decoded = bech32.decode(bech32Address);
-    const hex = Buffer.from(bech32.fromWords(decoded.words)).toString('hex');
-    return hex;
-};
-
-// Helper function to ensure hex values have an even length
-const ensureEvenHexLength = (hexValue) => {
-    return hexValue.length % 2 === 0 ? hexValue : '0' + hexValue;
-};
-
-// Helper function to encode a string to hexadecimal format
-const stringToHex = (str) => {
-    return Buffer.from(str, 'utf8').toString('hex');
-};
-
-// Function to calculate blockchain amount based on token decimals
-const calculateBlockchainAmount = async (qty, tokenTicker) => {
-    const decimals = await getTokenDecimals(tokenTicker); // Fetch token decimals
-    const factor = new BigNumber(10).pow(decimals);
-    const blockchainAmount = new BigNumber(qty).multipliedBy(factor);
-    return blockchainAmount.toFixed(0); // Return as a string in decimal format
-};
-
-// Construct payload for proposeAsyncCall with correct receiver address
-const constructProposeAsyncCallPayload = async (scAddress, receiver, tokenTicker, qty) => {
-    // Convert components to the required format
-    const scAddressHex = convertBech32ToHex(scAddress);   // SC address in hex
-    const receiverHex = convertBech32ToHex(receiver);     // Actual receiver address in hex
-    const tokenTickerHex = stringToHex(tokenTicker);      // Token ticker in hex
-
-    // Calculate the blockchain amount including decimals and convert to hex
-    const blockchainAmount = await calculateBlockchainAmount(qty, tokenTicker);
-    const amountHex = ensureEvenHexLength(BigInt(blockchainAmount).toString(16)); // Amount in hex
-
-    // Construct payload in the correct format for proposeAsyncCall
-    return `proposeAsyncCall@${receiverHex}@${stringToHex("ESDTTransfer")}@${tokenTickerHex}@${amountHex}`;
-};
-
-// Main Smart Contract Call function
-const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiver, tokenTicker, qty) => {
+// Function for free NFT mint airdrop
+const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiver, qty) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
-        let dataField;
-        if (actionType === "proposeAsyncCall") {
-            dataField = await constructProposeAsyncCallPayload(scAddress, receiver, tokenTicker, qty);
-        } else if (actionType === "giveaway") {
-            const receiverAddress = new Address(receiver);
-            const receiverHex = receiverAddress.hex();
-            const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
-            dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
-        } else {
-            throw new Error(`Unsupported actionType: ${actionType}`);
-        }
+        const receiverAddress = new Address(receiver);
+        const receiverHex = receiverAddress.hex();
+        const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
+        const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
-        const gasLimit = actionType === 'proposeAsyncCall' ? 10000000n : BigInt(calculateNftGasLimit(qty));
+        const gasLimit = BigInt(10000000); // Default gas limit for interactions
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
@@ -494,20 +445,20 @@ const executeScCall = async (pemContent, scAddress, actionType, endpoint, receiv
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
-        console.error('Error executing smart contract call:', error);
-        throw new Error('Smart contract call failed: ' + error.message);
+        console.error('Error executing free NFT mint airdrop:', error);
+        throw new Error('Transaction failed: ' + error.message);
     }
 };
 
-// Route for smart contract calls
-app.post('/execute/scCall', checkToken, async (req, res) => {
+// Route for free NFT mint airdrop
+app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
     try {
-        const { scAddress, actionType, endpoint, receiver, tokenTicker, qty } = req.body;
+        const { scAddress, endpoint, receiver, qty } = req.body;
         const pemContent = getPemContent(req);
-        const result = await executeScCall(pemContent, scAddress, actionType, endpoint, receiver, tokenTicker, qty);
+        const result = await executeFreeNftMintAirdrop(pemContent, scAddress, endpoint, receiver, qty);
         res.json({ result });
     } catch (error) {
-        console.error('Error executing smart contract call:', error);
+        console.error('Error executing free NFT mint airdrop:', error);
         res.status(500).json({ error: error.message });
     }
 });
