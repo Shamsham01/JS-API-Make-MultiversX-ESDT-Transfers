@@ -466,21 +466,29 @@ app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
 // Route for Distributing Rewards to NFT Owners
 app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
     try {
+        console.log('Incoming request body:', req.body);
+
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply, pemContent } = req.body;
 
         // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
+            console.error('Invalid owner stats provided.');
             return res.status(400).json({ error: 'Invalid owner stats provided.' });
         }
         if (!tokenTicker || !baseAmount) {
+            console.error('Token ticker and base amount are required.');
             return res.status(400).json({ error: 'Token ticker and base amount are required.' });
         }
         if (!pemContent) {
+            console.error('PEM file is required for signing transactions.');
             return res.status(400).json({ error: 'PEM file is required for signing transactions.' });
         }
 
         const signer = UserSigner.fromPem(pemContent);
+        console.log('Signer initialized successfully.');
+
         const senderAddress = signer.getAddress();
+        console.log('Sender address:', senderAddress);
 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
@@ -510,6 +518,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
             });
 
             await signer.sign(tx);
+            console.log(`Transaction signed for owner: ${owner}`);
 
             try {
                 const txHash = await provider.sendTransaction(tx);
@@ -531,6 +540,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // Start the server
 app.listen(PORT, () => {
