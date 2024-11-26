@@ -288,53 +288,40 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
     const signer = UserSigner.fromPem(walletPem);
     const senderAddress = signer.getAddress();
 
-    const axiosInstance = axios.create({
-      timeout: 10000,
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-    });
-
-    // Helper: Retry mechanism
-    const retryRequest = async (fn, retries = 3) => {
-      for (let i = 0; i < retries; i++) {
-        try {
-          return await fn();
-        } catch (err) {
-          if (i === retries - 1) throw err;
-          console.warn(`Retrying request (${i + 1}/${retries})...`);
-        }
-      }
-    };
-
     // Process tokens and create transfers
     const tokenTransfers = await Promise.all(
       tokens.map(async (token) => {
-        console.log(`Processing token:`, token);
+        const tokenIdSegmentsLength = token.id.split('-').length;
 
         let tokenData;
-        let url;
-
-        // Determine URL based on token type
-        const tokenIdSegments = token.id.split('-');
-        if (tokenIdSegments.length === 2) {
-          // ESDT Token
-          url = `${publicApi[chain]}/tokens/${token.id}`;
-        } else if (tokenIdSegments.length === 3 && token.nonce !== undefined) {
-          // SFT/NFT Token with Nonce
-          const paddedNonce = token.nonce.toString().padStart(2, '0'); // Ensure nonce is padded
-          url = `${publicApi[chain]}/nfts/${token.id}-${paddedNonce}`;
+        if (tokenIdSegmentsLength === 2) {
+          // Fungible Token (ESDT)
+          const { data } = await axios.get(`${publicApi[chain]}/tokens/${token.id}`, {
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+          });
+          tokenData = data;
+        } else if (tokenIdSegmentsLength === 3 && token.nonce !== undefined) {
+          // Semi-Fungible or Non-Fungible Token (NFT or SFT)
+          const { data } = await axios.get(
+            `${publicApi[chain]}/nfts/${token.id}-${String(token.nonce).padStart(2, '0')}`,
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+              },
+            }
+          );
+          tokenData = data;
         } else {
-          throw new Error(`Invalid token ID or missing nonce for token: ${JSON.stringify(token)}`);
+          throw new Error(`Invalid token ID or missing nonce for token: ${token.id}`);
         }
-
-        console.log(`Fetching token data from: ${url}`);
-        tokenData = await retryRequest(() => axiosInstance.get(url)).then((response) => response.data);
 
         const { nonce, decimals, ticker, type } = tokenData;
 
-        // Handle token transfers based on type
+        // Determine the token type and create the appropriate TokenTransfer
         switch (type) {
           case 'FungibleESDT':
             if (!token.amount) {
@@ -368,25 +355,19 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
       new TransactionsFactoryConfig({ chainID: chain === 'mainnet' ? '1' : 'D' })
     );
 
-    const tx = factory.createTransactionForESDTTokenTransfer({
-      sender: senderAddress,
-      receiver: new Address(recipient),
+    const tx = factory.createMultiESDTNFTTransfer({
       tokenTransfers,
+      sender: senderAddress,
+      destination: new Address(recipient),
     });
 
-    // Estimate gas dynamically
-    const estimatedGas = BigInt(500000 + tokens.length * 500000); // Adjust gas per token
-    tx.gasLimit = estimatedGas;
-
-    // Sign and send transaction
+    // Sign and send the transaction
     await signer.sign(tx);
     const txHash = await provider.sendTransaction(tx);
 
-    // Log success and respond
-    console.log(`Transaction successful. Hash: ${txHash}`);
+    // Respond with transaction hash
     res.json({ message: 'Transaction submitted', txHash: txHash.toString() });
   } catch (error) {
-    // Log detailed error
     console.error('Error during multi-token transfer:', error.message);
     res.status(500).json({ error: error.message });
   }
