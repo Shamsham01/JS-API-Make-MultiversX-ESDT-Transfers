@@ -468,8 +468,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
     try {
         console.log('Incoming request body:', req.body);
 
-        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
-        const pemContent = getPemContent(req);  // Use standardized validation
+        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply, pemContent } = req.body;
 
         // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
@@ -480,6 +479,10 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
             console.error('Token ticker and base amount are required.');
             return res.status(400).json({ error: 'Token ticker and base amount are required.' });
         }
+        if (!pemContent) {
+            console.error('PEM file is required for signing transactions.');
+            return res.status(400).json({ error: 'PEM file is required for signing transactions.' });
+        }
 
         const signer = UserSigner.fromPem(pemContent);
         console.log('Signer initialized successfully.');
@@ -488,31 +491,38 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         console.log('Sender address:', senderAddress);
 
         const accountOnNetwork = await provider.getAccount(senderAddress);
-        const senderNonce = accountOnNetwork.nonce;
+        let currentNonce = accountOnNetwork.nonce;
 
-        // Fetch token decimals
+        // Fetch token decimals once for efficiency
         const decimals = await getTokenDecimals(tokenTicker);
 
         // Prepare transactions
         const results = [];
-        let currentNonce = senderNonce;
 
         for (const { owner, tokensCount } of uniqueOwnerStats) {
+            // Calculate adjusted amount based on the multiplier
             const adjustedAmount = multiply
                 ? convertAmountToBlockchainValue(baseAmount * tokensCount, decimals)
                 : convertAmountToBlockchainValue(baseAmount, decimals);
 
-            const tx = new Transaction({
-                nonce: currentNonce++,
-                sender: senderAddress,
-                receiver: new Address(owner),
-                value: '0', // No EGLD is transferred
-                data: new TransactionPayload(
-                    `ESDTTransfer@${Buffer.from(tokenTicker).toString('hex')}@${BigInt(adjustedAmount).toString(16)}`
-                ),
-                gasLimit: calculateEsdtGasLimit(),
-                chainID: '1',
+            // Create the transaction using the working `sendEsdtToken` logic
+            const receiverAddress = new Address(owner);
+            const tokenTransfer = new TokenTransfer({
+                token: new Token({ identifier: tokenTicker }),
+                amount: BigInt(adjustedAmount),
             });
+
+            const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+            const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+            const tx = factory.createTransactionForESDTTokenTransfer({
+                sender: senderAddress,
+                receiver: receiverAddress,
+                tokenTransfers: [tokenTransfer],
+            });
+
+            tx.nonce = currentNonce++; // Increment nonce for each transaction
+            tx.gasLimit = calculateEsdtGasLimit();
 
             await signer.sign(tx);
             console.log(`Transaction signed for owner: ${owner}`);
