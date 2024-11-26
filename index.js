@@ -280,6 +280,7 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
   try {
     const { walletPem, recipient, tokens } = req.body;
 
+    // Validate payload
     if (!walletPem || !recipient || !tokens || !Array.isArray(tokens)) {
       return res.status(400).json({ error: 'Invalid request payload' });
     }
@@ -287,70 +288,88 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
     const signer = UserSigner.fromPem(walletPem);
     const senderAddress = signer.getAddress();
 
+    // Process tokens and create transfers
     const tokenTransfers = await Promise.all(
-  tokens.map(async (token) => {
-    const tokenIdSegmentsLength = token.id.split('-').length;
+      tokens.map(async (token) => {
+        const tokenIdSegmentsLength = token.id.split('-').length;
 
-    let tokenData;
-    if (tokenIdSegmentsLength === 2) {
-      // Fungible Token (ESDT)
-      const { data } = await axios.get(`${publicApi[chain]}/tokens/${token.id}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      });
-      tokenData = data;
-    } else if (tokenIdSegmentsLength === 3) {
-      // Non-Fungible or Semi-Fungible Token (NFT or SFT)
-      const { data } = await axios.get(`${publicApi[chain]}/nfts/${token.id}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-      });
-      tokenData = data;
-    } else {
-      throw new Error(`Invalid token ID format: ${token.id}`);
-    }
+        let tokenData;
+        if (tokenIdSegmentsLength === 2) {
+          // Fungible Token (ESDT)
+          const { data } = await axios.get(`${publicApi[chain]}/tokens/${token.id}`, {
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+          });
+          tokenData = data;
+        } else if (tokenIdSegmentsLength === 3 && token.nonce) {
+          // Non-Fungible or Semi-Fungible Token (NFT or SFT)
+          const { data } = await axios.get(`${publicApi[chain]}/nfts/${token.id}-${token.nonce}`, {
+            headers: {
+              'Content-Type': 'application/json',
+              Accept: 'application/json',
+            },
+          });
+          tokenData = data;
+        } else {
+          throw new Error(`Invalid token ID or missing nonce for token: ${token.id}`);
+        }
 
-    const { nonce, decimals, ticker, type } = tokenData;
+        const { nonce, decimals, ticker, type } = tokenData;
 
-    if (type === 'FungibleESDT') {
-      return TokenTransfer.fungibleFromAmount(token.id, token.amount, decimals);
-    }
+        // Determine the token type and create the appropriate TokenTransfer
+        switch (type) {
+          case 'FungibleESDT':
+            if (!token.amount) {
+              throw new Error(`Amount is required for Fungible Token (ESDT): ${token.id}`);
+            }
+            return TokenTransfer.fungibleFromAmount(token.id, token.amount, decimals);
 
-    if (type === 'NonFungibleESDT') {
-      return TokenTransfer.nonFungible(ticker, nonce);
-    }
+          case 'NonFungibleESDT':
+            return TokenTransfer.nonFungible(ticker, nonce);
 
-    if (type === 'SemiFungibleESDT') {
-      return TokenTransfer.semiFungible(ticker, nonce, token.amount);
-    }
+          case 'SemiFungibleESDT':
+            if (!token.amount) {
+              throw new Error(`Amount is required for Semi-Fungible Token (SFT): ${token.id}`);
+            }
+            return TokenTransfer.semiFungible(ticker, nonce, token.amount);
 
-    if (type === 'MetaESDT') {
-      return TokenTransfer.metaEsdtFromAmount(ticker, nonce, token.amount, decimals);
-    }
+          case 'MetaESDT':
+            if (!token.amount) {
+              throw new Error(`Amount is required for MetaESDT Token: ${token.id}`);
+            }
+            return TokenTransfer.metaEsdtFromAmount(ticker, nonce, token.amount, decimals);
 
-    throw new Error(`Unsupported token type: ${type}`);
-  })
-);
+          default:
+            throw new Error(`Unsupported token type: ${type}`);
+        }
+      })
+    );
 
-    const factory = new TransferTransactionsFactory(new TransactionsFactoryConfig({ chainID: chain === 'mainnet' ? '1' : 'D' }));
+    // Create the multi-token transfer transaction
+    const factory = new TransferTransactionsFactory(
+      new TransactionsFactoryConfig({ chainID: chain === 'mainnet' ? '1' : 'D' })
+    );
+
     const tx = factory.createMultiESDTNFTTransfer({
       tokenTransfers,
       sender: senderAddress,
       destination: new Address(recipient),
     });
 
+    // Sign and send the transaction
     await signer.sign(tx);
     const txHash = await provider.sendTransaction(tx);
+
+    // Respond with transaction hash
     res.json({ message: 'Transaction submitted', txHash: txHash.toString() });
   } catch (error) {
-    console.error('Error during multi-token transfer:', error);
+    console.error('Error during multi-token transfer:', error.message);
     res.status(500).json({ error: error.message });
   }
 });
+
 
 // Start the server
 app.listen(PORT, () => {
