@@ -287,86 +287,68 @@ app.post('/execute/multiTokenTransfer', checkToken, async (req, res) => {
 
     const signer = UserSigner.fromPem(walletPem);
     const senderAddress = signer.getAddress();
+    const receiverAddress = new Address(recipient);
 
-    // Process tokens and create transfers
-    const tokenTransfers = await Promise.all(
-      tokens.map(async (token) => {
-        const tokenIdSegmentsLength = token.id.split('-').length;
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    const senderNonce = accountOnNetwork.nonce;
 
-        let tokenData;
-        if (tokenIdSegmentsLength === 2) {
-          // Fungible Token (ESDT)
-          const { data } = await axios.get(`${publicApi[chain]}/tokens/${token.id}`, {
-            headers: {
-              'Content-Type': 'application/json',
-              Accept: 'application/json',
-            },
+    const factoryConfig = new TransactionsFactoryConfig({ chainID: chain === 'mainnet' ? '1' : 'D' });
+    const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+    // Process tokens and create TokenTransfer objects
+    const tokenTransfers = tokens.map((token) => {
+      const { id, amount, nonce } = token;
+
+      if (!id) {
+        throw new Error('Token identifier is required for all transfers');
+      }
+
+      const tokenIdSegments = id.split('-');
+      const tokenType = tokenIdSegments.length === 3 ? 'NFT/SFT' : 'ESDT';
+
+      switch (tokenType) {
+        case 'ESDT':
+          if (!amount) {
+            throw new Error(`Amount is required for Fungible Token (ESDT): ${id}`);
+          }
+          return new TokenTransfer({
+            token: new Token({ identifier: id }),
+            amount: BigInt(amount),
           });
-          tokenData = data;
-        } else if (tokenIdSegmentsLength === 3 && token.nonce !== undefined) {
-          // Semi-Fungible or Non-Fungible Token (NFT or SFT)
-          const { data } = await axios.get(
-            `${publicApi[chain]}/nfts/${token.id}-${String(token.nonce).padStart(2, '0')}`,
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-              },
-            }
-          );
-          tokenData = data;
-        } else {
-          throw new Error(`Invalid token ID or missing nonce for token: ${token.id}`);
-        }
 
-        const { nonce, decimals, ticker, type } = tokenData;
+        case 'NFT/SFT':
+          if (!nonce) {
+            throw new Error(`Nonce is required for Non-Fungible/Semi-Fungible Token: ${id}`);
+          }
+          if (!amount) {
+            throw new Error(`Amount is required for Semi-Fungible Token: ${id}`);
+          }
+          return new TokenTransfer({
+            token: new Token({ identifier: id, nonce: BigInt(nonce) }),
+            amount: BigInt(amount),
+          });
 
-        // Determine the token type and create the appropriate TokenTransfer
-        switch (type) {
-          case 'FungibleESDT':
-            if (!token.amount) {
-              throw new Error(`Amount is required for Fungible Token (ESDT): ${token.id}`);
-            }
-            return TokenTransfer.fungibleFromAmount(token.id, token.amount, decimals);
-
-          case 'NonFungibleESDT':
-            return TokenTransfer.nonFungible(ticker, nonce);
-
-          case 'SemiFungibleESDT':
-            if (!token.amount) {
-              throw new Error(`Amount is required for Semi-Fungible Token (SFT): ${token.id}`);
-            }
-            return TokenTransfer.semiFungible(ticker, nonce, token.amount);
-
-          case 'MetaESDT':
-            if (!token.amount) {
-              throw new Error(`Amount is required for MetaESDT Token: ${token.id}`);
-            }
-            return TokenTransfer.metaEsdtFromAmount(ticker, nonce, token.amount, decimals);
-
-          default:
-            throw new Error(`Unsupported token type: ${type}`);
-        }
-      })
-    );
-
-    // Create the multi-token transfer transaction
-    const factory = new TransferTransactionsFactory(
-      new TransactionsFactoryConfig({ chainID: chain === 'mainnet' ? '1' : 'D' })
-    );
+        default:
+          throw new Error(`Unsupported token type for token ID: ${id}`);
+      }
+    });
 
     const tx = factory.createMultiESDTNFTTransfer({
-      tokenTransfers,
       sender: senderAddress,
-      destination: new Address(recipient),
+      destination: receiverAddress,
+      tokenTransfers,
     });
+
+    tx.nonce = senderNonce;
+    tx.gasLimit = BigInt(5000000 + tokenTransfers.length * 500000); // Example dynamic gas calculation
 
     // Sign and send the transaction
     await signer.sign(tx);
     const txHash = await provider.sendTransaction(tx);
 
-    // Respond with transaction hash
-    res.json({ message: 'Transaction submitted', txHash: txHash.toString() });
+    // Poll for transaction confirmation
+    const finalStatus = await checkTransactionStatus(txHash.toString());
+    res.json({ message: 'Transaction successful', txHash: txHash.toString(), result: finalStatus });
   } catch (error) {
     console.error('Error during multi-token transfer:', error.message);
     res.status(500).json({ error: error.message });
