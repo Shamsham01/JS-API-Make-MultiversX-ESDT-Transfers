@@ -35,7 +35,7 @@ const getPemContent = (req) => {
 };
 
 // --------------- Transaction Confirmation Logic (Polling) --------------- //
-const checkTransactionStatus = async (txHash, retries = 20, delay = 3000) => {
+const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
     const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
 
     for (let i = 0; i < retries; i++) {
