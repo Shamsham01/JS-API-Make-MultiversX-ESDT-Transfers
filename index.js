@@ -463,7 +463,7 @@ app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
     }
 });
 
-// Function for Distributing Rewards to NFT Owners
+// Function for Distributing Rewards to NFT Owners with Parallel Broadcasting and Controlled Speed
 app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
     try {
         // Use the standardized getPemContent function to retrieve the PEM content
@@ -478,63 +478,83 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
             return res.status(400).json({ error: 'Token ticker and base amount are required.' });
         }
 
-        // Initialize signer
+        // Initialize signer and fetch sender details
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
-        // Fetch sender account details
         const accountOnNetwork = await provider.getAccount(senderAddress);
         let currentNonce = accountOnNetwork.nonce;
 
         // Fetch token decimals once for efficiency
         const decimals = await getTokenDecimals(tokenTicker);
 
-        // Prepare results array
-        const results = [];
-
         // Explicitly handle multiplier logic
         const multiplierEnabled = multiply === "yes";
 
-        for (const { owner, tokensCount } of uniqueOwnerStats) {
-            // Calculate adjusted amount based on the multiplier
+        // Helper function to create a transaction
+        const createTransaction = (owner, tokensCount, nonce) => {
             const adjustedAmount = multiplierEnabled
                 ? convertAmountToBlockchainValue(baseAmount * tokensCount, decimals)
                 : convertAmountToBlockchainValue(baseAmount, decimals);
 
-            try {
-                // Prepare receiver address and token transfer details
-                const receiverAddress = new Address(owner);
-                const tokenTransfer = new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker }),
-                    amount: BigInt(adjustedAmount),
-                });
+            const receiverAddress = new Address(owner);
+            const tokenTransfer = new TokenTransfer({
+                token: new Token({ identifier: tokenTicker }),
+                amount: BigInt(adjustedAmount),
+            });
 
-                // Create transaction using the working `sendEsdtToken` logic
-                const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-                const factory = new TransferTransactionsFactory({ config: factoryConfig });
+            const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+            const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-                const tx = factory.createTransactionForESDTTokenTransfer({
-                    sender: senderAddress,
-                    receiver: receiverAddress,
-                    tokenTransfers: [tokenTransfer],
-                });
+            const tx = factory.createTransactionForESDTTokenTransfer({
+                sender: senderAddress,
+                receiver: receiverAddress,
+                tokenTransfers: [tokenTransfer],
+            });
 
-                // Set nonce and gas limit
-                tx.nonce = currentNonce++;
-                tx.gasLimit = calculateEsdtGasLimit();
+            tx.nonce = nonce;
+            tx.gasLimit = calculateEsdtGasLimit();
 
-                // Sign and send the transaction
-                await signer.sign(tx);
-                const txHash = await provider.sendTransaction(tx);
+            return tx;
+        };
 
-                // Check the transaction status
-                const finalStatus = await checkTransactionStatus(txHash.toString());
-                results.push({ owner, txHash: txHash.toString(), status: finalStatus.status });
-            } catch (error) {
-                console.error(`Error sending transaction to ${owner}:`, error.message);
-                results.push({ owner, error: error.message, status: 'failed' });
+        // Helper function to process transactions in batches with delay
+        const processBatches = async (transactions, batchSize, delay) => {
+            const results = [];
+            for (let i = 0; i < transactions.length; i += batchSize) {
+                const batch = transactions.slice(i, i + batchSize);
+                const batchResults = await Promise.all(
+                    batch.map(async ({ owner, tokensCount, nonce }) => {
+                        const tx = createTransaction(owner, tokensCount, nonce);
+                        try {
+                            await signer.sign(tx);
+                            const txHash = await provider.sendTransaction(tx);
+                            const finalStatus = await checkTransactionStatus(txHash.toString());
+                            return { owner, txHash: txHash.toString(), status: finalStatus.status };
+                        } catch (error) {
+                            console.error(`Error sending transaction to ${owner}:`, error.message);
+                            return { owner, error: error.message, status: 'failed' };
+                        }
+                    })
+                );
+                results.push(...batchResults);
+
+                // Delay between batches to control the transaction rate
+                if (i + batchSize < transactions.length) {
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
             }
-        }
+            return results;
+        };
+
+        // Prepare transactions with corresponding nonces
+        const transactions = uniqueOwnerStats.map((ownerData, index) => ({
+            ...ownerData,
+            nonce: currentNonce + index,
+        }));
+
+        // Process transactions in batches (3 tx/s)
+        const results = await processBatches(transactions, 3, 1000); // 3 transactions per second
 
         // Return transaction results
         res.json({
@@ -546,7 +566,6 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         res.status(500).json({ error: error.message });
     }
 });
-
 
 
 // Start the server
