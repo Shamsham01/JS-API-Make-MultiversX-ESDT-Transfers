@@ -553,8 +553,8 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
             nonce: currentNonce + index,
         }));
 
-        // Process transactions in batches (3 tx/s)
-        const results = await processBatches(transactions, 3, 1000); // 3 transactions per second
+        // Process transactions in batches (10 tx/s)
+        const results = await processBatches(transactions, 10, 1000); // 10 transactions per second
 
         // Return transaction results
         res.json({
