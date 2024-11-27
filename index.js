@@ -463,10 +463,9 @@ app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
     }
 });
 
-// Function for Distributing Rewards to NFT Owners with Parallel Broadcasting and Controlled Speed
+// Function for Distributing Rewards to NFT Owners with Parallel Broadcasting at 3 tx/s
 app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
     try {
-        // Use the standardized getPemContent function to retrieve the PEM content
         const pemContent = getPemContent(req);
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
 
@@ -518,43 +517,38 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
             return tx;
         };
 
-        // Helper function to process transactions in batches with delay
-        const processBatches = async (transactions, batchSize, delay) => {
-            const results = [];
-            for (let i = 0; i < transactions.length; i += batchSize) {
-                const batch = transactions.slice(i, i + batchSize);
-                const batchResults = await Promise.all(
-                    batch.map(async ({ owner, tokensCount, nonce }) => {
-                        const tx = createTransaction(owner, tokensCount, nonce);
-                        try {
-                            await signer.sign(tx);
-                            const txHash = await provider.sendTransaction(tx);
-                            const finalStatus = await checkTransactionStatus(txHash.toString());
-                            return { owner, txHash: txHash.toString(), status: finalStatus.status };
-                        } catch (error) {
-                            console.error(`Error sending transaction to ${owner}:`, error.message);
-                            return { owner, error: error.message, status: 'failed' };
-                        }
-                    })
-                );
-                results.push(...batchResults);
-
-                // Delay between batches to control the transaction rate
-                if (i + batchSize < transactions.length) {
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                }
+        // Helper function to send a single transaction
+        const sendTransaction = async (owner, tokensCount, nonce) => {
+            const tx = createTransaction(owner, tokensCount, nonce);
+            try {
+                await signer.sign(tx);
+                const txHash = await provider.sendTransaction(tx);
+                const finalStatus = await checkTransactionStatus(txHash.toString());
+                return { owner, txHash: txHash.toString(), status: finalStatus.status };
+            } catch (error) {
+                return { owner, error: error.message, status: 'failed' };
             }
-            return results;
         };
 
-        // Prepare transactions with corresponding nonces
-        const transactions = uniqueOwnerStats.map((ownerData, index) => ({
-            ...ownerData,
-            nonce: currentNonce + index,
-        }));
+        // Process transactions in parallel with rate limiting
+        const results = [];
+        const processTransactions = async () => {
+            for (let i = 0; i < uniqueOwnerStats.length; i += 3) {
+                const batch = uniqueOwnerStats.slice(i, i + 3); // Batch of 3 transactions
+                const batchPromises = batch.map((ownerData, index) =>
+                    sendTransaction(ownerData.owner, ownerData.tokensCount, currentNonce + i + index)
+                );
+                const batchResults = await Promise.all(batchPromises);
+                results.push(...batchResults);
 
-        // Process transactions in batches (10 tx/s)
-        const results = await processBatches(transactions, 10, 200); // 10 transactions per second
+                // Delay for 1 second to maintain 3 tx/s rate
+                if (i + 3 < uniqueOwnerStats.length) {
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                }
+            }
+        };
+
+        await processTransactions();
 
         // Return transaction results
         res.json({
@@ -566,7 +560,6 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         res.status(500).json({ error: error.message });
     }
 });
-
 
 // Start the server
 app.listen(PORT, () => {
