@@ -543,7 +543,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
 
                 // Delay for 1 second to maintain 3 tx/s rate
                 if (i + 3 < uniqueOwnerStats.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await new Promise(resolve => setTimeout(resolve, 200));
                 }
             }
         };
