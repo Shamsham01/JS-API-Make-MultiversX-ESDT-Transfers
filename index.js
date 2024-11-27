@@ -477,18 +477,16 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
             return res.status(400).json({ error: 'Token ticker and base amount are required.' });
         }
 
-        // Initialize signer and fetch sender details
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
 
         const accountOnNetwork = await provider.getAccount(senderAddress);
         let currentNonce = accountOnNetwork.nonce;
 
-        // Fetch token decimals once for efficiency
         const decimals = await getTokenDecimals(tokenTicker);
-
-        // Explicitly handle multiplier logic
         const multiplierEnabled = multiply === "yes";
+
+        const txHashes = [];
 
         // Helper function to create a transaction
         const createTransaction = (owner, tokensCount, nonce) => {
@@ -517,49 +515,55 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
             return tx;
         };
 
-        // Helper function to send a single transaction
-        const sendTransaction = async (owner, tokensCount, nonce) => {
-            const tx = createTransaction(owner, tokensCount, nonce);
-            try {
-                await signer.sign(tx);
-                const txHash = await provider.sendTransaction(tx);
-                const finalStatus = await checkTransactionStatus(txHash.toString());
-                return { owner, txHash: txHash.toString(), status: finalStatus.status };
-            } catch (error) {
-                return { owner, error: error.message, status: 'failed' };
-            }
-        };
-
-        // Process transactions in parallel with rate limiting
-        const results = [];
-        const processTransactions = async () => {
-            for (let i = 0; i < uniqueOwnerStats.length; i += 3) {
-                const batch = uniqueOwnerStats.slice(i, i + 3); // Batch of 3 transactions
-                const batchPromises = batch.map((ownerData, index) =>
-                    sendTransaction(ownerData.owner, ownerData.tokensCount, currentNonce + i + index)
+        // Step 1: Sign and send all transactions in parallel batches
+        for (let i = 0; i < uniqueOwnerStats.length; i += 3) {
+            const batch = uniqueOwnerStats.slice(i, i + 3);
+            const batchPromises = batch.map((ownerData, index) => {
+                const tx = createTransaction(
+                    ownerData.owner,
+                    ownerData.tokensCount,
+                    currentNonce + i + index
                 );
-                const batchResults = await Promise.all(batchPromises);
-                results.push(...batchResults);
 
-                // Delay for 1 second to maintain 3 tx/s rate
-                if (i + 3 < uniqueOwnerStats.length) {
-                    await new Promise(resolve => setTimeout(resolve, 50));
-                }
+                return signer.sign(tx).then(async () => {
+                    const txHash = await provider.sendTransaction(tx);
+                    return { owner: ownerData.owner, txHash: txHash.toString() };
+                }).catch(error => ({
+                    owner: ownerData.owner,
+                    error: error.message,
+                    status: "failed"
+                }));
+            });
+
+            // Process batch
+            const batchResults = await Promise.all(batchPromises);
+            txHashes.push(...batchResults);
+
+            // Throttle to 3 transactions per second
+            if (i + 3 < uniqueOwnerStats.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay for next batch
             }
-        };
+        }
 
-        await processTransactions();
+        // Step 2: Poll for transaction statuses in parallel after all transactions are sent
+        const statusPromises = txHashes.map(({ owner, txHash }) =>
+            checkTransactionStatus(txHash)
+                .then(status => ({ owner, txHash, status: status.status }))
+                .catch(error => ({ owner, txHash, error: error.message, status: 'failed' }))
+        );
+        const statusResults = await Promise.all(statusPromises);
 
         // Return transaction results
         res.json({
             message: 'Rewards distribution completed.',
-            results,
+            results: statusResults,
         });
     } catch (error) {
         console.error('Error during rewards distribution:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // Start the server
 app.listen(PORT, () => {
