@@ -466,67 +466,68 @@ app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
 // Function for Distributing Rewards to NFT Owners
 app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
     try {
-        console.log('Incoming request body:', req.body);
-
         // Use the standardized getPemContent function to retrieve the PEM content
         const pemContent = getPemContent(req);
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
 
         // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
-            console.error('Invalid owner stats provided.');
             return res.status(400).json({ error: 'Invalid owner stats provided.' });
         }
         if (!tokenTicker || !baseAmount) {
-            console.error('Token ticker and base amount are required.');
             return res.status(400).json({ error: 'Token ticker and base amount are required.' });
         }
 
+        // Initialize signer
         const signer = UserSigner.fromPem(pemContent);
-        console.log('Signer initialized successfully.');
-
         const senderAddress = signer.getAddress();
-        console.log('Sender address:', senderAddress);
 
+        // Fetch sender account details
         const accountOnNetwork = await provider.getAccount(senderAddress);
         let currentNonce = accountOnNetwork.nonce;
 
         // Fetch token decimals once for efficiency
         const decimals = await getTokenDecimals(tokenTicker);
 
-        // Prepare transactions
+        // Prepare results array
         const results = [];
+
+        // Explicitly handle multiplier logic
+        const multiplierEnabled = multiply === "yes";
 
         for (const { owner, tokensCount } of uniqueOwnerStats) {
             // Calculate adjusted amount based on the multiplier
-            const adjustedAmount = multiply
+            const adjustedAmount = multiplierEnabled
                 ? convertAmountToBlockchainValue(baseAmount * tokensCount, decimals)
                 : convertAmountToBlockchainValue(baseAmount, decimals);
 
-            // Create the transaction using the working `sendEsdtToken` logic
-            const receiverAddress = new Address(owner);
-            const tokenTransfer = new TokenTransfer({
-                token: new Token({ identifier: tokenTicker }),
-                amount: BigInt(adjustedAmount),
-            });
-
-            const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-            const factory = new TransferTransactionsFactory({ config: factoryConfig });
-
-            const tx = factory.createTransactionForESDTTokenTransfer({
-                sender: senderAddress,
-                receiver: receiverAddress,
-                tokenTransfers: [tokenTransfer],
-            });
-
-            tx.nonce = currentNonce++; // Increment nonce for each transaction
-            tx.gasLimit = calculateEsdtGasLimit();
-
-            await signer.sign(tx);
-            console.log(`Transaction signed for owner: ${owner}`);
-
             try {
+                // Prepare receiver address and token transfer details
+                const receiverAddress = new Address(owner);
+                const tokenTransfer = new TokenTransfer({
+                    token: new Token({ identifier: tokenTicker }),
+                    amount: BigInt(adjustedAmount),
+                });
+
+                // Create transaction using the working `sendEsdtToken` logic
+                const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+                const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+                const tx = factory.createTransactionForESDTTokenTransfer({
+                    sender: senderAddress,
+                    receiver: receiverAddress,
+                    tokenTransfers: [tokenTransfer],
+                });
+
+                // Set nonce and gas limit
+                tx.nonce = currentNonce++;
+                tx.gasLimit = calculateEsdtGasLimit();
+
+                // Sign and send the transaction
+                await signer.sign(tx);
                 const txHash = await provider.sendTransaction(tx);
+
+                // Check the transaction status
                 const finalStatus = await checkTransactionStatus(txHash.toString());
                 results.push({ owner, txHash: txHash.toString(), status: finalStatus.status });
             } catch (error) {
@@ -545,6 +546,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         res.status(500).json({ error: error.message });
     }
 });
+
 
 
 // Start the server
