@@ -1,7 +1,201 @@
-// Helper function to convert numbers to Hexadecimal
-const toHex = (number) => {
-    return BigInt(number).toString(16).padStart(2, '0');
+const express = require('express');
+const bodyParser = require('body-parser');
+const fetch = require('node-fetch');
+const {
+    Address,
+    Token,
+    TokenTransfer,
+    TransferTransactionsFactory,
+    TransactionsFactoryConfig,
+    Transaction,
+    TransactionPayload,
+} = require('@multiversx/sdk-core');
+const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
+const { UserSigner } = require('@multiversx/sdk-wallet');
+const BigNumber = require('bignumber.js');
+
+const app = express();
+const PORT = process.env.PORT || 10000;
+const SECURE_TOKEN = process.env.SECURE_TOKEN;
+const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn";
+const USAGE_FEE = 100;
+const TOKEN_TICKER = "REWARD-cf6eac";
+
+const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
+
+app.use(bodyParser.json());
+
+// Middleware to check authorization token
+const checkToken = (req, res, next) => {
+    const token = req.headers.authorization;
+    if (token === `Bearer ${SECURE_TOKEN}`) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized' });
+    }
 };
+
+// Helper: Get PEM content from request
+const getPemContent = (req) => {
+    const pemContent = req.body.walletPem;
+    if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
+        throw new Error('Invalid PEM content');
+    }
+    return pemContent;
+};
+
+// Helper: Calculate gas limit for ESDT transfers
+const calculateEsdtGasLimit = () => BigInt(500000);
+
+// Helper: Fetch token decimals
+const getTokenDecimals = async (tokenTicker) => {
+    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
+    const response = await fetch(apiUrl);
+    if (!response.ok) throw new Error(`Failed to fetch token info: ${response.statusText}`);
+    const tokenInfo = await response.json();
+    return tokenInfo.decimals || 0;
+};
+
+// Helper: Convert amounts to blockchain value
+const convertAmountToBlockchainValue = (amount, decimals) => {
+    const factor = new BigNumber(10).pow(decimals);
+    return new BigNumber(amount).multipliedBy(factor).toFixed(0);
+};
+
+// Helper: Fetch user token balances
+const fetchUserTokenBalances = async (address) => {
+    const apiUrl = `https://api.multiversx.com/accounts/${address}/tokens`;
+    const response = await fetch(apiUrl);
+    if (!response.ok) throw new Error(`Failed to fetch token balances: ${response.statusText}`);
+    return await response.json();
+};
+
+// Helper: Check if user has enough REWARD tokens
+const hasEnoughRewardTokens = async (address) => {
+    const balances = await fetchUserTokenBalances(address);
+    const rewardToken = balances.find((token) => token.identifier === TOKEN_TICKER);
+    if (!rewardToken || new BigNumber(rewardToken.balance).isLessThan(USAGE_FEE * Math.pow(10, rewardToken.decimals))) {
+        return false;
+    }
+    return true;
+};
+
+// Helper: Send usage fee
+const sendUsageFee = async (pemContent) => {
+    const signer = UserSigner.fromPem(pemContent);
+    const senderAddress = signer.getAddress();
+    const receiverAddress = new Address(TREASURY_WALLET);
+
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    const nonce = accountOnNetwork.nonce;
+
+    const decimals = await getTokenDecimals(TOKEN_TICKER);
+    const convertedAmount = convertAmountToBlockchainValue(USAGE_FEE, decimals);
+
+    const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+    const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+    const tx = factory.createTransactionForESDTTokenTransfer({
+        sender: senderAddress,
+        receiver: receiverAddress,
+        tokenTransfers: [
+            new TokenTransfer({
+                token: new Token({ identifier: TOKEN_TICKER }),
+                amount: BigInt(convertedAmount),
+            }),
+        ],
+    });
+
+    tx.nonce = nonce;
+    tx.gasLimit = calculateEsdtGasLimit();
+
+    await signer.sign(tx);
+    const txHash = await provider.sendTransaction(tx);
+    return txHash.toString();
+};
+
+// Middleware: Handle usage fee
+const handleUsageFee = async (req, res, next) => {
+    try {
+        const pemContent = getPemContent(req);
+        const walletAddress = UserSigner.fromPem(pemContent).getAddress().toString();
+
+        if (!(await hasEnoughRewardTokens(walletAddress))) {
+            return res.status(400).json({ error: 'Insufficient REWARD tokens. You need at least 100 REWARD tokens to use this module.' });
+        }
+
+        const usageFeeHash = await sendUsageFee(pemContent);
+        req.usageFeeHash = usageFeeHash;
+        next();
+    } catch (error) {
+        console.error('Error handling usage fee:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+// Transaction confirmation logic (polling)
+const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
+    const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
+    for (let i = 0; i < retries; i++) {
+        try {
+            const response = await fetch(txStatusUrl);
+            if (!response.ok) throw new Error(`HTTP error ${response.status}`);
+            const txStatus = await response.json();
+            if (txStatus.status === "success") return { status: "success", txHash };
+            if (txStatus.status === "fail") return { status: "fail", txHash };
+        } catch (error) {
+            console.error(`Error checking transaction ${txHash}: ${error.message}`);
+        }
+        await new Promise(resolve => setTimeout(resolve, delay));
+    }
+    throw new Error(`Transaction ${txHash} status could not be determined after ${retries} retries.`);
+};
+
+// ------------------- Endpoints ------------------- //
+// Authorization endpoint
+app.post('/execute/authorize', checkToken, (req, res) => {
+    try {
+        const pemContent = getPemContent(req);
+        res.json({ message: "Authorization Successful" });
+    } catch (error) {
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// EGLD Transfer endpoint
+app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) => {
+    try {
+        const { recipient, amount } = req.body;
+        const pemContent = getPemContent(req);
+
+        const signer = UserSigner.fromPem(pemContent);
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address(recipient);
+
+        const accountOnNetwork = await provider.getAccount(senderAddress);
+        const senderNonce = accountOnNetwork.nonce;
+
+        const amountInWEI = new BigNumber(amount).multipliedBy(10 ** 18).toFixed(0);
+
+        const tx = new Transaction({
+            nonce: senderNonce,
+            receiver: receiverAddress,
+            sender: senderAddress,
+            value: amountInWEI,
+            gasLimit: BigInt(50000),
+            chainID: "1",
+        });
+
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+        const result = await checkTransactionStatus(txHash.toString());
+
+        res.json({ result, usageFeeHash: req.usageFeeHash });
+    } catch (error) {
+        console.error('Error executing EGLD transfer:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // --------------- NFT Transfer Logic --------------- //
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) => {
