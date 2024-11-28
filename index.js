@@ -21,7 +21,7 @@ app.use(bodyParser.json());  // Support JSON-encoded bodies
 // Middleware to check authorization token
 const checkToken = (req, res, next) => {
     const token = req.headers.authorization;
-    if (token === Bearer ${SECURE_TOKEN}) {
+    if (token === `Bearer ${SECURE_TOKEN}`) {
         next();
     } else {
         res.status(401).json({ error: 'Unauthorized' });
