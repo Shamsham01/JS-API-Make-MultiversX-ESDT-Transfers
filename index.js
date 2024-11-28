@@ -63,8 +63,7 @@ const handleUsageFee = async (req, res, next) => {
 
 // --------------- Transaction Confirmation Logic (Polling) --------------- //
 const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
-    const txStatusUrl = https://api.multiversx.com/transactions/${txHash};
-
+    const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
     for (let i = 0; i < retries; i++) {
         try {
             const response = await fetch(txStatusUrl);
