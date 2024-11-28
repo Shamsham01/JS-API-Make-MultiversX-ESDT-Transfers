@@ -197,6 +197,55 @@ app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) =
     }
 });
 
+// --------------- ESDT Transfer Endpoint --------------- //
+const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
+    const signer = UserSigner.fromPem(pemContent);
+    const senderAddress = signer.getAddress();
+    const receiverAddress = new Address(recipient);
+
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    const nonce = accountOnNetwork.nonce;
+
+    const decimals = await getTokenDecimals(tokenTicker);
+    const convertedAmount = convertAmountToBlockchainValue(amount, decimals);
+
+    const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+    const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+    const tx = factory.createTransactionForESDTTokenTransfer({
+        sender: senderAddress,
+        receiver: receiverAddress,
+        tokenTransfers: [
+            new TokenTransfer({
+                token: new Token({ identifier: tokenTicker }),
+                amount: BigInt(convertedAmount),
+            }),
+        ],
+    });
+
+    tx.nonce = nonce;
+    tx.gasLimit = calculateEsdtGasLimit();
+
+    await signer.sign(tx);
+    const txHash = await provider.sendTransaction(tx);
+    return await checkTransactionStatus(txHash.toString());
+};
+
+app.post('/execute/esdtTransfer', checkToken, handleUsageFee, async (req, res) => {
+    try {
+        const { recipient, amount, tokenTicker } = req.body;
+        const pemContent = getPemContent(req);
+        const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
+        res.json({
+            result,
+            usageFeeHash: req.usageFeeHash,
+        });
+    } catch (error) {
+        console.error('Error executing ESDT transaction:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --------------- NFT Transfer Logic --------------- //
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) => {
     const signer = UserSigner.fromPem(pemContent);
