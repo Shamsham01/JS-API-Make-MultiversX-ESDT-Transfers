@@ -9,9 +9,6 @@ const BigNumber = require('bignumber.js');
 const app = express();
 const PORT = process.env.PORT || 10000;
 const SECURE_TOKEN = process.env.SECURE_TOKEN;  // Secure Token for authorization
-const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet address
-const USAGE_FEE = 100; // Usage fee in REWARD tokens
-const TOKEN_TICKER = "REWARD-cf6eac"; // Token identifier
 
 // Set up the network provider for MultiversX (mainnet or devnet)
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
@@ -37,41 +34,18 @@ const getPemContent = (req) => {
     return pemContent;
 };
 
-// Middleware to handle usage fee
-const handleUsageFee = async (req, res, next) => {
-    try {
-        const pemContent = getPemContent(req);
-        const walletAddress = getWalletAddressFromPem(pemContent);
-
-        // Check if the user has enough REWARD tokens
-        if (!(await hasEnoughRewardTokens(walletAddress))) {
-            return res.status(400).json({ error: 'Insufficient REWARD tokens. You need at least 100 REWARD tokens to use this module.' });
-        }
-
-        // Deduct the usage fee
-        const usageFeeHash = await sendUsageFee(pemContent);
-
-        // Attach the usage fee hash to the request object for response
-        req.usageFeeHash = usageFeeHash;
-
-        next();
-    } catch (error) {
-        console.error('Error handling usage fee:', error.message);
-        res.status(500).json({ error: error.message });
-    }
-};
-
 // --------------- Transaction Confirmation Logic (Polling) --------------- //
 const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
     const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
+
     for (let i = 0; i < retries; i++) {
         try {
             const response = await fetch(txStatusUrl);
 
             // Ensure we only parse valid responses
             if (!response.ok) {
-                console.warn(Non-200 response for ${txHash}: ${response.status});
-                throw new Error(HTTP error ${response.status});
+                console.warn(`Non-200 response for ${txHash}: ${response.status}`);
+                throw new Error(`HTTP error ${response.status}`);
             }
 
             // Attempt to parse the JSON response
@@ -84,15 +58,15 @@ const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
                 return { status: "fail", txHash };
             }
 
-            console.log(Transaction ${txHash} still pending, retrying...);
+            console.log(`Transaction ${txHash} still pending, retrying...`);
         } catch (error) {
             if (error instanceof SyntaxError) {
                 console.error(
-                    Failed to parse JSON for ${txHash}: ${error.message}. Retrying...
+                    `Failed to parse JSON for ${txHash}: ${error.message}. Retrying...`
                 );
             } else {
                 console.error(
-                    Error fetching transaction ${txHash}: ${error.message}
+                    `Error fetching transaction ${txHash}: ${error.message}`
                 );
             }
         }
@@ -102,7 +76,7 @@ const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
     }
 
     throw new Error(
-        Transaction ${txHash} status could not be determined after ${retries} retries.
+        `Transaction ${txHash} status could not be determined after ${retries} retries.`
     );
 };
 
@@ -137,63 +111,6 @@ app.post('/execute/authorize', checkToken, (req, res) => {
 const convertEGLDToWEI = (amount) => {
     return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);
 };
-
-// Function to fetch user token balances
-const fetchUserTokenBalances = async (address) => {
-    const apiUrl = https://api.multiversx.com/accounts/${address}/tokens;
-    const response = await fetch(apiUrl);
-    if (!response.ok) {
-        throw new Error(Failed to fetch token balances: ${response.statusText});
-    }
-    return await response.json();
-};
-
-// Function to check if the user has enough REWARD tokens
-const hasEnoughRewardTokens = async (address) => {
-    const balances = await fetchUserTokenBalances(address);
-    const rewardToken = balances.find((token) => token.identifier === TOKEN_TICKER);
-    if (!rewardToken || new BigNumber(rewardToken.balance).isLessThan(USAGE_FEE * Math.pow(10, rewardToken.decimals))) {
-        return false;
-    }
-    return true;
-};
-
-// Function to send REWARD tokens for the usage fee
-const sendUsageFee = async (pemContent) => {
-    const signer = UserSigner.fromPem(pemContent);
-    const senderAddress = signer.getAddress();
-    const receiverAddress = new Address(TREASURY_WALLET);
-
-    const accountOnNetwork = await provider.getAccount(senderAddress);
-    const nonce = accountOnNetwork.nonce;
-
-    const decimals = await getTokenDecimals(TOKEN_TICKER);
-    const convertedAmount = convertAmountToBlockchainValue(USAGE_FEE, decimals);
-
-    const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-    const factory = new TransferTransactionsFactory({ config: factoryConfig });
-
-    const tx = factory.createTransactionForESDTTokenTransfer({
-        sender: senderAddress,
-        receiver: receiverAddress,
-        tokenTransfers: [
-            new TokenTransfer({
-                token: new Token({ identifier: TOKEN_TICKER }),
-                amount: BigInt(convertedAmount),
-            }),
-        ],
-    });
-
-    tx.nonce = nonce;
-    tx.gasLimit = calculateEsdtGasLimit();
-
-    await signer.sign(tx);
-    const txHash = await provider.sendTransaction(tx);
-
-    // Return usage fee transaction hash
-    return txHash.toString();
-};
-
 
 // --------------- EGLD Transfer Logic --------------- //
 const sendEgld = async (pemContent, recipient, amount) => {
@@ -232,16 +149,12 @@ const sendEgld = async (pemContent, recipient, amount) => {
 };
 
 // Route for EGLD transfers
-app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) => {
+app.post('/execute/egldTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount } = req.body;
         const pemContent = getPemContent(req);
         const result = await sendEgld(pemContent, recipient, amount);
-        res.json({
-    result,
-    usageFeeHash: req.usageFeeHash, // Include the usage fee transaction hash
-});
-
+        res.json({ result });
     } catch (error) {
         console.error('Error executing EGLD transaction:', error);
         res.status(500).json({ error: error.message });
@@ -250,10 +163,10 @@ app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) =
 
 // --------------- ESDT Transfer Logic --------------- //
 const getTokenDecimals = async (tokenTicker) => {
-    const apiUrl = https://api.multiversx.com/tokens/${tokenTicker};
+    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
     const response = await fetch(apiUrl);
     if (!response.ok) {
-        throw new Error(Failed to fetch token info: ${response.statusText});
+        throw new Error(`Failed to fetch token info: ${response.statusText}`);
     }
     const tokenInfo = await response.json();
     return tokenInfo.decimals || 0;
@@ -306,16 +219,12 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 };
 
 // Route for ESDT transfers
-app.post('/execute/esdtTransfer', checkToken, handleUsageFee, async (req, res) => {
+app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
         const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
-        res.json({
-    result,
-    usageFeeHash: req.usageFeeHash, // Include the usage fee transaction hash
-});
-
+        res.json({ result });
     } catch (error) {
         console.error('Error executing ESDT transaction:', error);
         res.status(500).json({ error: error.message });
@@ -341,7 +250,7 @@ const sendMetaEsdt = async (pemContent, recipient, tokenIdentifier, nonce, amoun
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
         // Construct data payload for Meta-ESDT Transfer
-        const dataField = ESDTNFTTransfer@${Buffer.from(tokenIdentifier).toString('hex')}@${toHex(nonce)}@${toHex(amount)};
+        const dataField = `ESDTNFTTransfer@${Buffer.from(tokenIdentifier).toString('hex')}@${toHex(nonce)}@${toHex(amount)}`;
 
         // Create the transaction
         const tx = new Transaction({
@@ -368,18 +277,14 @@ const sendMetaEsdt = async (pemContent, recipient, tokenIdentifier, nonce, amoun
 };
 
 // Route to handle Meta-ESDT transfers
-app.post('/execute/metaEsdtTransfer', checkToken, handleUsageFee, async (req, res) => {
+app.post('/execute/metaEsdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, nonce, amount } = req.body;
         const pemContent = getPemContent(req);
 
         // Execute the Meta-ESDT transfer
         const result = await sendMetaEsdt(pemContent, recipient, tokenIdentifier, nonce, amount);
-        res.json({
-    result,
-    usageFeeHash: req.usageFeeHash, // Include the usage fee transaction hash
-});
-
+        res.json({ result });
     } catch (error) {
         console.error('Error executing Meta-ESDT transaction:', error);
         res.status(500).json({ error: error.message });
@@ -391,10 +296,10 @@ app.post('/execute/metaEsdtTransfer', checkToken, handleUsageFee, async (req, re
 
 // Function to validate amount before conversion to BigInt
 const validateNumberInput = (value, fieldName) => {
-    console.log(Validating ${fieldName}:, value);  // Log the input value for debugging
+    console.log(`Validating ${fieldName}:`, value);  // Log the input value for debugging
     const numValue = Number(value);
     if (isNaN(numValue) || numValue <= 0) {
-        throw new Error(Invalid ${fieldName} provided. It must be a positive number.);
+        throw new Error(`Invalid ${fieldName} provided. It must be a positive number.`);
     }
     return numValue;
 };
@@ -445,17 +350,13 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) 
 };
 
 // Route for NFT transfers
-app.post('/execute/nftTransfer', checkToken, handleUsageFee, async (req, res) => {
+app.post('/execute/nftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, tokenNonce } = req.body;
         const pemContent = getPemContent(req);
 
         const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce);
-        res.json({
-    result,
-    usageFeeHash: req.usageFeeHash, // Include the usage fee transaction hash
-});
-
+        res.json({ result });
     } catch (error) {
         console.error('Error executing NFT transaction:', error);
         res.status(500).json({ error: error.message });
@@ -467,10 +368,10 @@ app.post('/execute/nftTransfer', checkToken, handleUsageFee, async (req, res) =>
 
 // Function to validate amount before conversion to BigInt
 const validateAmountInput = (value, fieldName) => {
-    console.log(Validating ${fieldName}:, value);  // Log the input value for debugging
+    console.log(`Validating ${fieldName}:`, value);  // Log the input value for debugging
     const numValue = Number(value);
     if (isNaN(numValue) || numValue <= 0) {
-        throw new Error(Invalid ${fieldName} provided. It must be a positive number.);
+        throw new Error(`Invalid ${fieldName} provided. It must be a positive number.`);
     }
     return numValue;
 };
@@ -524,7 +425,7 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
 };
 
 // Route for SFT transfers with dynamic gas calculation
-app.post('/execute/sftTransfer', checkToken, handleUsageFee, async (req, res) => {
+app.post('/execute/sftTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker, tokenNonce } = req.body;
         const pemContent = getPemContent(req);
@@ -533,11 +434,7 @@ app.post('/execute/sftTransfer', checkToken, handleUsageFee, async (req, res) =>
         console.log('Request Body:', req.body);
 
         const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
-        res.json({
-    result,
-    usageFeeHash: req.usageFeeHash, // Include the usage fee transaction hash
-});
-
+        res.json({ result });
     } catch (error) {
         console.error('Error executing SFT transaction:', error);
         res.status(500).json({ error: error.message });
@@ -553,7 +450,7 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
         const receiverAddress = new Address(receiver);
         const receiverHex = receiverAddress.hex();
         const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
-        const dataField = ${endpoint}@${receiverHex}@${qtyHex};
+        const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
         const gasLimit = BigInt(10000000); // Default gas limit for interactions
         const accountOnNetwork = await provider.getAccount(senderAddress);
@@ -581,16 +478,12 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
 };
 
 // Function for free NFT mint airdrop
-app.post('/execute/freeNftMintAirdrop', checkToken, handleUsageFee, async (req, res) => {
+app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
         const pemContent = getPemContent(req);
         const result = await executeFreeNftMintAirdrop(pemContent, scAddress, endpoint, receiver, qty);
-        res.json({
-    result,
-    usageFeeHash: req.usageFeeHash, // Include the usage fee transaction hash
-});
-
+        res.json({ result });
     } catch (error) {
         console.error('Error executing free NFT mint airdrop:', error);
         res.status(500).json({ error: error.message });
@@ -598,7 +491,7 @@ app.post('/execute/freeNftMintAirdrop', checkToken, handleUsageFee, async (req, 
 });
 
 // Function for Distributing Rewards to NFT Owners with Parallel Broadcasting at 3 tx/s
-app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, async (req, res) => {
+app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
     try {
         const pemContent = getPemContent(req);
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
@@ -688,11 +581,10 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
         const statusResults = await Promise.all(statusPromises);
 
         // Return transaction results
-res.json({
-    message: 'Rewards distribution completed.',
-    usageFeeHash: req.usageFeeHash, // Include the usage fee transaction hash
-    results: statusResults,
-});
+        res.json({
+            message: 'Rewards distribution completed.',
+            results: statusResults,
+        });
     } catch (error) {
         console.error('Error during rewards distribution:', error.message);
         res.status(500).json({ error: error.message });
@@ -702,5 +594,5 @@ res.json({
 
 // Start the server
 app.listen(PORT, () => {
-    console.log(Server is running on port ${PORT});
+    console.log(`Server is running on port ${PORT}`);
 });
