@@ -204,12 +204,12 @@ const sendEgld = async (pemContent, recipient, amount) => {
 };
 
 // Route for EGLD transfers
-app.post('/execute/egldTransfer', checkToken, async (req, res) => {
+app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { recipient, amount } = req.body;
         const pemContent = getPemContent(req);
         const result = await sendEgld(pemContent, recipient, amount);
-        res.json({ result });
+        res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing EGLD transaction:', error);
         res.status(500).json({ error: error.message });
@@ -332,14 +332,14 @@ const sendMetaEsdt = async (pemContent, recipient, tokenIdentifier, nonce, amoun
 };
 
 // Route to handle Meta-ESDT transfers
-app.post('/execute/metaEsdtTransfer', checkToken, async (req, res) => {
+app.post('/execute/metaEsdtTransfer', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, nonce, amount } = req.body;
         const pemContent = getPemContent(req);
 
         // Execute the Meta-ESDT transfer
         const result = await sendMetaEsdt(pemContent, recipient, tokenIdentifier, nonce, amount);
-        res.json({ result });
+         res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing Meta-ESDT transaction:', error);
         res.status(500).json({ error: error.message });
@@ -405,13 +405,13 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) 
 };
 
 // Route for NFT transfers
-app.post('/execute/nftTransfer', checkToken, async (req, res) => {
+app.post('/execute/nftTransfer', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, tokenNonce } = req.body;
         const pemContent = getPemContent(req);
 
         const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce);
-        res.json({ result });
+         res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing NFT transaction:', error);
         res.status(500).json({ error: error.message });
@@ -480,7 +480,7 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
 };
 
 // Route for SFT transfers with dynamic gas calculation
-app.post('/execute/sftTransfer', checkToken, async (req, res) => {
+app.post('/execute/sftTransfer', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker, tokenNonce } = req.body;
         const pemContent = getPemContent(req);
@@ -489,7 +489,7 @@ app.post('/execute/sftTransfer', checkToken, async (req, res) => {
         console.log('Request Body:', req.body);
 
         const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
-        res.json({ result });
+         res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing SFT transaction:', error);
         res.status(500).json({ error: error.message });
@@ -533,12 +533,12 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
 };
 
 // Function for free NFT mint airdrop
-app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
+app.post('/execute/freeNftMintAirdrop', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
         const pemContent = getPemContent(req);
         const result = await executeFreeNftMintAirdrop(pemContent, scAddress, endpoint, receiver, qty);
-        res.json({ result });
+         res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing free NFT mint airdrop:', error);
         res.status(500).json({ error: error.message });
@@ -546,7 +546,7 @@ app.post('/execute/freeNftMintAirdrop', checkToken, async (req, res) => {
 });
 
 // Function for Distributing Rewards to NFT Owners with Parallel Broadcasting at 3 tx/s
-app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) => {
+app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, async (req, res) => {
     try {
         const pemContent = getPemContent(req);
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
@@ -635,11 +635,12 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, async (req, res) =
         );
         const statusResults = await Promise.all(statusPromises);
 
-        // Return transaction results
-        res.json({
-            message: 'Rewards distribution completed.',
-            results: statusResults,
-        });
+        // Return transaction results with UsageFee hash
+res.json({
+    message: 'Rewards distribution completed.',
+    usageFeeHash: req.usageFeeHash, // Include the UsageFee transaction hash
+    results: statusResults, // Existing results from the rewards distribution
+});
     } catch (error) {
         console.error('Error during rewards distribution:', error.message);
         res.status(500).json({ error: error.message });
