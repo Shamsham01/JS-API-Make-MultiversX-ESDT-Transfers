@@ -5,10 +5,12 @@ const { Address, Token, TokenTransfer, TransferTransactionsFactory, Transactions
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
 const BigNumber = require('bignumber.js');
-
 const app = express();
 const PORT = process.env.PORT || 10000;
 const SECURE_TOKEN = process.env.SECURE_TOKEN;  // Secure Token for authorization
+const USAGE_FEE = 100; // Fee in REWARD tokens
+const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
+const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
 
 // Set up the network provider for MultiversX (mainnet or devnet)
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
@@ -107,10 +109,63 @@ app.post('/execute/authorize', checkToken, (req, res) => {
     }
 });
 
+const sendUsageFee = async (pemContent) => {
+    const signer = UserSigner.fromPem(pemContent);
+    const senderAddress = signer.getAddress();
+    const receiverAddress = new Address(TREASURY_WALLET);
+
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    const nonce = accountOnNetwork.nonce;
+
+    const decimals = await getTokenDecimals(REWARD_TOKEN);
+    const convertedAmount = convertAmountToBlockchainValue(USAGE_FEE, decimals);
+
+    const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+    const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+    const tx = factory.createTransactionForESDTTokenTransfer({
+        sender: senderAddress,
+        receiver: receiverAddress,
+        tokenTransfers: [
+            new TokenTransfer({
+                token: new Token({ identifier: REWARD_TOKEN }),
+                amount: BigInt(convertedAmount),
+            }),
+        ],
+    });
+
+    tx.nonce = nonce;
+    tx.gasLimit = BigInt(500000);
+
+    await signer.sign(tx);
+    const txHash = await provider.sendTransaction(tx);
+
+    // Poll for transaction confirmation
+    const status = await checkTransactionStatus(txHash.toString());
+    if (status.status !== "success") {
+        throw new Error('UsageFee transaction failed. Ensure sufficient REWARD tokens are available.');
+    }
+    return txHash.toString();
+};
+
+const handleUsageFee = async (req, res, next) => {
+    try {
+        const pemContent = getPemContent(req);
+        const txHash = await sendUsageFee(pemContent);
+        req.usageFeeHash = txHash; // Attach transaction hash to the request
+        next();
+    } catch (error) {
+        console.error('Error processing UsageFee:', error.message);
+        res.status(400).json({ error: error.message });
+    }
+};
+
+
 // Function to convert EGLD to WEI (1 EGLD = 10^18 WEI)
 const convertEGLDToWEI = (amount) => {
     return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);
 };
+
 
 // --------------- EGLD Transfer Logic --------------- //
 const sendEgld = async (pemContent, recipient, amount) => {
@@ -219,12 +274,12 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 };
 
 // Route for ESDT transfers
-app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
+app.post('/execute/esdtTransfer', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
         const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
-        res.json({ result });
+        res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing ESDT transaction:', error);
         res.status(500).json({ error: error.message });
