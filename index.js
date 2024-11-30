@@ -15,6 +15,26 @@ const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6
 // Set up the network provider for MultiversX (mainnet or devnet)
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
 
+const fs = require('fs');
+const path = require('path');
+
+const whitelistFilePath = path.join(__dirname, 'whitelist.json');
+
+// Load the whitelist file
+const loadWhitelist = () => {
+    if (!fs.existsSync(whitelistFilePath)) {
+        fs.writeFileSync(whitelistFilePath, JSON.stringify([], null, 2));
+    }
+    const data = fs.readFileSync(whitelistFilePath);
+    return JSON.parse(data);
+};
+
+// Check if a wallet is whitelisted
+const isWhitelisted = (walletAddress) => {
+    const whitelist = loadWhitelist();
+    return whitelist.some(entry => entry.walletAddress === walletAddress);
+};
+
 app.use(bodyParser.json());  // Support JSON-encoded bodies
 
 // Middleware to check authorization token
@@ -34,6 +54,12 @@ const getPemContent = (req) => {
         throw new Error('Invalid PEM content');
     }
     return pemContent;
+};
+
+// Helper to derive wallet address from PEM
+const deriveWalletAddressFromPem = (pemContent) => {
+    const signer = UserSigner.fromPem(pemContent);
+    return signer.getAddress().toString();
 };
 
 // --------------- Transaction Confirmation Logic (Polling) --------------- //
@@ -100,11 +126,43 @@ const calculateEsdtGasLimit = () => {
 };
 
 // --------------- Authorization Endpoint --------------- //
+const usersFilePath = path.join(__dirname, 'users.json');
+
+// Helper to log user activity
+const logUserActivity = (walletAddress) => {
+    const currentDate = new Date().toISOString();
+
+    // Load existing users
+    let usersData = [];
+    if (fs.existsSync(usersFilePath)) {
+        const rawData = fs.readFileSync(usersFilePath);
+        usersData = JSON.parse(rawData);
+    }
+
+    // Append the new activity
+    usersData.push({
+        walletAddress: walletAddress,
+        authorizedAt: currentDate,
+    });
+
+    // Save back to file
+    fs.writeFileSync(usersFilePath, JSON.stringify(usersData, null, 2));
+    console.log(`User activity logged: ${walletAddress} at ${currentDate}`);
+};
+
+// Update `/execute/authorize` endpoint
 app.post('/execute/authorize', checkToken, (req, res) => {
     try {
         const pemContent = getPemContent(req);
-        res.json({ message: "Authorization Successful" });
+        const walletAddress = deriveWalletAddressFromPem(pemContent);
+
+        // Log the user activity
+        logUserActivity(walletAddress);
+
+        // Respond with a success message
+        res.json({ message: "Authorization Successful", walletAddress });
     } catch (error) {
+        console.error('Error in authorization:', error.message);
         res.status(400).json({ error: error.message });
     }
 });
@@ -151,6 +209,15 @@ const sendUsageFee = async (pemContent) => {
 const handleUsageFee = async (req, res, next) => {
     try {
         const pemContent = getPemContent(req);
+        const walletAddress = deriveWalletAddressFromPem(pemContent);
+
+        // Check if the wallet is whitelisted
+        if (isWhitelisted(walletAddress)) {
+            console.log(`Wallet ${walletAddress} is whitelisted. Skipping usage fee.`);
+            next(); // Skip the usage fee and proceed
+            return;
+        }
+
         const txHash = await sendUsageFee(pemContent);
         req.usageFeeHash = txHash; // Attach transaction hash to the request
         next();
@@ -159,7 +226,6 @@ const handleUsageFee = async (req, res, next) => {
         res.status(400).json({ error: error.message });
     }
 };
-
 
 // Function to convert EGLD to WEI (1 EGLD = 10^18 WEI)
 const convertEGLDToWEI = (amount) => {
