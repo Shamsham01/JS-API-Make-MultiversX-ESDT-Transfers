@@ -11,10 +11,12 @@ services:
       - key: CHAIN
         value: "mainnet"
       - key: SECURE_TOKEN
+        value: ""
         sync: true
       - key: CHAIN_ID
         value: "1"
       - key: ADMIN_KEY
+        value: ""
         sync: true
     autoDeploy: true
     region: frankfurt
