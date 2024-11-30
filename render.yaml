@@ -11,8 +11,10 @@ services:
       - key: CHAIN
         value: "mainnet"
       - key: SECURE_TOKEN
-        sync: false
+        sync: true
       - key: CHAIN_ID
-        value: "1" # Optional, specify if required
+        value: "1"
+      - key: ADMIN_KEY
+        sync: true
     autoDeploy: true
     region: frankfurt
