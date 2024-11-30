@@ -13,7 +13,7 @@ services:
       - key: SECURE_TOKEN
         sync: true
       - key: CHAIN_ID
-        value: "1" #
+        value: "1"
       - key: ADMIN_KEY
         sync: true
     autoDeploy: true
