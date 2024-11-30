@@ -273,23 +273,37 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     }
 };
 
-// Route for ESDT transfers
-app.post('/execute/esdtTransfer', checkToken, handleUsageFee, async (req, res) => {
+// Route for ESDT transfers with wallet address derivation and logging
+app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
+
+        // Derive the wallet address from the PEM content
+        const deriveWalletAddressFromPem = (pemContent) => {
+            const signer = UserSigner.fromPem(pemContent);
+            return signer.getAddress().toString(); // Derive and return the wallet address
+        };
+
+        const walletAddress = deriveWalletAddressFromPem(pemContent);
+
+        // Log the derived wallet address
+        console.log(`Derived wallet address: ${walletAddress}`);
+
+        // Perform the ESDT transfer
         const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
-        res.json({ result, usageFeeHash: req.usageFeeHash });
+
+        // Return the result along with the derived wallet address
+        res.json({
+            message: "ESDT transfer executed successfully.",
+            walletAddress: walletAddress, // Include the wallet address in the response
+            result: result,
+        });
     } catch (error) {
-        console.error('Error executing ESDT transaction:', error);
+        console.error('Error executing ESDT transaction:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
-
-// Helper function to convert numbers to Hexadecimal
-const toHex = (number) => {
-    return BigInt(number).toString(16).padStart(2, '0');
-};
 
 // Function to handle Meta-ESDT transfers
 const sendMetaEsdt = async (pemContent, recipient, tokenIdentifier, nonce, amount) => {
