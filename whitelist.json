@@ -3,5 +3,10 @@
         "walletAddress": "erd15wmqqvxf3yp6dztvyhxj4g297uaae0q3wgy58ld4js2pn9f6k3pqnwupt3",
         "label": "HodlTokenClubAssets",
         "whitelistStart": "2024-11-26T10:00:00Z"
+    },
+    {
+        "walletAddress": "erd15wmqqvxf3yp6dztvyhxj4g297uaae0q3wgy58ld4js2pn9f6k3pqnwupt3",
+        "label": "HodlTokenClubAssets",
+        "whitelistStart": "2024-11-26T10:00:00Z"
     }
 ]
