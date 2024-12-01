@@ -146,25 +146,35 @@ router.post('/egldTransfer', handleUsageFee, async (req, res) => {
 // 2. ESDT Transfer
 router.post('/esdtTransfer', handleUsageFee, async (req, res) => {
     try {
+        // Extract parameters from request body
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = req.body.walletPem;
 
+        // Input validation
+        if (!recipient || typeof recipient !== 'string') {
+            return res.status(400).json({ error: 'Invalid or missing recipient address.' });
+        }
+        if (!amount || isNaN(amount) || amount <= 0) {
+            return res.status(400).json({ error: 'Invalid or missing amount. It must be a positive number.' });
+        }
+        if (!tokenTicker || typeof tokenTicker !== 'string') {
+            return res.status(400).json({ error: 'Invalid or missing token ticker.' });
+        }
+
+        // Fetch token decimals for precise amount conversion
         const decimals = await getTokenDecimals(tokenTicker);
         const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
 
+        // Set up sender and receiver addresses
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
 
-        const tx = new TransferTransactionsFactory({
-            sender: senderAddress,
-            receiver: receiverAddress,
-            tokenTransfers: [new TokenTransfer({ token: new Token({ identifier: tokenTicker }), amount: BigInt(adjustedAmount) })],
-        });
-    } catch {
+        // Fetch sender's account nonce from the network
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const nonce = accountOnNetwork.nonce;
 
+        // Create ESDT transaction
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
@@ -180,13 +190,21 @@ router.post('/esdtTransfer', handleUsageFee, async (req, res) => {
         });
 
         tx.nonce = nonce;
-        tx.gasLimit = BigInt(500000);
+        tx.gasLimit = BigInt(500000); // Base gas limit for ESDT transfers
 
+        // Sign and send the transaction
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
+        // Check transaction status
         const result = await checkTransactionStatus(txHash.toString());
-        res.json({ message: "ESDT transfer executed successfully.", usageFeeHash: req.usageFeeHash, result });
+
+        // Return successful response
+        res.json({
+            message: 'ESDT transfer executed successfully.',
+            usageFeeHash: req.usageFeeHash,
+            result,
+        });
     } catch (error) {
         console.error('Error executing ESDT transfer:', error.message);
         res.status(500).json({ error: error.message });
