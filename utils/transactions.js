@@ -190,40 +190,68 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
     let currentNonce = accountOnNetwork.nonce;
 
     const results = [];
-    for (const owner of uniqueOwnerStats) {
-        const adjustedAmount = multiply === "yes"
-            ? convertAmountToBlockchainValue(baseAmount * owner.tokensCount, decimals)
-            : convertAmountToBlockchainValue(baseAmount, decimals);
 
-        const receiverAddress = new Address(owner.owner);
+    // Helper function to create and send a transaction
+    const createAndSendTransaction = async (owner, adjustedAmount, nonce) => {
+        try {
+            const receiverAddress = new Address(owner.owner);
+            const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
+            const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+            const tx = factory.createTransactionForESDTTokenTransfer({
+                sender: senderAddress,
+                receiver: receiverAddress,
+                tokenTransfers: [
+                    new TokenTransfer({
+                        token: new Token({ identifier: tokenTicker }),
+                        amount: BigInt(adjustedAmount),
+                    }),
+                ],
+            });
 
-        const tx = factory.createTransactionForESDTTokenTransfer({
-            sender: senderAddress,
-            receiver: receiverAddress,
-            tokenTransfers: [
-                new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker }),
-                    amount: BigInt(adjustedAmount),
-                }),
-            ],
+            tx.nonce = nonce;
+            tx.gasLimit = BigInt(500000);
+
+            await signer.sign(tx);
+            const txHash = await provider.sendTransaction(tx);
+
+            const status = await checkTransactionStatus(txHash.toString());
+            return { owner: owner.owner, txHash, status };
+        } catch (error) {
+            console.error(`Error processing transaction for ${owner.owner}:`, error.message);
+            return { owner: owner.owner, error: error.message, status: 'failed' };
+        }
+    };
+
+    // Process transactions in batches
+    const batchSize = 4; // Number of parallel transactions per batch
+    for (let i = 0; i < uniqueOwnerStats.length; i += batchSize) {
+        const batch = uniqueOwnerStats.slice(i, i + batchSize);
+
+        // Prepare transactions for the batch
+        const batchPromises = batch.map((owner, index) => {
+            const adjustedAmount = multiply === "yes"
+                ? convertAmountToBlockchainValue(baseAmount * owner.tokensCount, decimals)
+                : convertAmountToBlockchainValue(baseAmount, decimals);
+
+            return createAndSendTransaction(owner, adjustedAmount, currentNonce + index);
         });
 
-        tx.nonce = currentNonce++;
-        tx.gasLimit = BigInt(500000); // Gas per transaction
+        // Execute the batch and collect results
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
 
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-        const status = await checkTransactionStatus(txHash.toString());
+        // Throttle to maintain ~4 tx/s
+        if (i + batchSize < uniqueOwnerStats.length) {
+            await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay between batches
+        }
 
-        results.push({ owner: owner.owner, txHash, status });
+        // Update nonce for the next batch
+        currentNonce += batchSize;
     }
 
     return results;
 };
-
 
 // Export functions
 module.exports = {
