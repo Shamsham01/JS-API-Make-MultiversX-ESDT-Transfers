@@ -152,11 +152,86 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, tokenNon
     return await checkTransactionStatus(txHash.toString());
 };
 
+// Free Mint Airdrop
+const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiver, qty) => {
+    const signer = UserSigner.fromPem(pemContent);
+    const senderAddress = signer.getAddress();
+
+    const receiverAddress = new Address(receiver);
+    const receiverHex = receiverAddress.hex();
+    const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
+    const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
+
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    const nonce = accountOnNetwork.nonce;
+
+    const tx = new Transaction({
+        nonce,
+        sender: senderAddress,
+        receiver: new Address(scAddress),
+        value: '0',
+        gasLimit: BigInt(10000000), // Default gas limit for airdrop
+        data: new TransactionPayload(dataField),
+        chainID: CHAIN_ID,
+    });
+
+    await signer.sign(tx);
+    const txHash = await provider.sendTransaction(tx);
+    return await checkTransactionStatus(txHash.toString());
+};
+
+// ESDT Airdrop to NFT Owners
+const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenTicker, baseAmount, multiply) => {
+    const signer = UserSigner.fromPem(pemContent);
+    const senderAddress = signer.getAddress();
+    const decimals = await getTokenDecimals(tokenTicker);
+
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    let currentNonce = accountOnNetwork.nonce;
+
+    const results = [];
+    for (const owner of uniqueOwnerStats) {
+        const adjustedAmount = multiply === "yes"
+            ? convertAmountToBlockchainValue(baseAmount * owner.tokensCount, decimals)
+            : convertAmountToBlockchainValue(baseAmount, decimals);
+
+        const receiverAddress = new Address(owner.owner);
+
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
+        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = factory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: receiverAddress,
+            tokenTransfers: [
+                new TokenTransfer({
+                    token: new Token({ identifier: tokenTicker }),
+                    amount: BigInt(adjustedAmount),
+                }),
+            ],
+        });
+
+        tx.nonce = currentNonce++;
+        tx.gasLimit = BigInt(500000); // Gas per transaction
+
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+        const status = await checkTransactionStatus(txHash.toString());
+
+        results.push({ owner: owner.owner, txHash, status });
+    }
+
+    return results;
+};
+
+
 // Export functions
 module.exports = {
     sendEgld,
     sendEsdtToken,
     sendNftToken,
     sendSftToken,
+    executeFreeNftMintAirdrop,
+    distributeRewardsToNftOwners,
     checkTransactionStatus,
 };
