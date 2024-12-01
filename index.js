@@ -8,6 +8,7 @@ const BigNumber = require('bignumber.js');
 const app = express();
 const PORT = process.env.PORT || 10000;
 const SECURE_TOKEN = process.env.SECURE_TOKEN;  // Secure Token for authorization
+const ADMIN_TOKEN = process.env.ADMIN_TOKEN;  // Admin Token for whitelist management
 const USAGE_FEE = 100; // Fee in REWARD tokens
 const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
@@ -20,6 +21,17 @@ const fs = require('fs');
 const path = require('path');
 
 const whitelistFilePath = path.join(__dirname, 'whitelist.json');
+
+// Middleware to check admin authorization token
+const checkAdminToken = (req, res, next) => {
+    const token = req.headers.authorization;
+    if (token === `Bearer ${ADMIN_TOKEN}`) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized: Invalid Admin Token' });
+    }
+};
+
 
 // Load the whitelist file
 const loadWhitelist = () => {
@@ -198,7 +210,7 @@ app.post('/execute/authorize', checkToken, (req, res) => {
     }
 });
 
-app.post('/admin/addToWhitelist', checkToken, async (req, res) => {
+app.post('/admin/addToWhitelist', checkAdminToken, async (req, res) => {
     try {
         const { walletAddress, label, whitelistStart } = req.body;
 
