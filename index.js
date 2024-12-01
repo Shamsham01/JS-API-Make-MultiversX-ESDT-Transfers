@@ -11,6 +11,7 @@ const SECURE_TOKEN = process.env.SECURE_TOKEN;  // Secure Token for authorizatio
 const USAGE_FEE = 100; // Fee in REWARD tokens
 const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
+const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make webhook URL
 
 // Set up the network provider for MultiversX (mainnet or devnet)
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
@@ -34,6 +35,36 @@ const isWhitelisted = (walletAddress) => {
     const whitelist = loadWhitelist();
     return whitelist.some(entry => entry.walletAddress === walletAddress);
 };
+
+const saveWhitelist = (whitelist) => {
+    fs.writeFileSync(whitelistFilePath, JSON.stringify(whitelist, null, 2));
+};
+
+const sendWebhookUpdate = async (whitelist) => {
+    try {
+        const encodedContent = Buffer.from(JSON.stringify(whitelist)).toString('base64');
+        const response = await fetch(WEBHOOK_WHITELIST_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                message: "Updated whitelist via API",
+                content: encodedContent
+            })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.message || 'Failed to send webhook update');
+        }
+
+        console.log('Webhook update sent successfully');
+        return true;
+    } catch (error) {
+        console.error('Error sending webhook update:', error.message);
+        throw error;
+    }
+};
+
 
 app.use(bodyParser.json());  // Support JSON-encoded bodies
 
@@ -166,6 +197,37 @@ app.post('/execute/authorize', checkToken, (req, res) => {
         res.status(400).json({ error: error.message });
     }
 });
+
+app.post('/admin/addToWhitelist', checkToken, async (req, res) => {
+    try {
+        const { walletAddress, label, whitelistStart } = req.body;
+
+        if (!walletAddress || !label || !whitelistStart) {
+            return res.status(400).json({ error: 'Invalid data. walletAddress, label, and whitelistStart are required.' });
+        }
+
+        const whitelist = loadWhitelist();
+        const existingWallet = whitelist.find(entry => entry.walletAddress === walletAddress);
+
+        if (existingWallet) {
+            return res.status(400).json({ error: 'Wallet address is already whitelisted.' });
+        }
+
+        // Add new entry to whitelist
+        const newEntry = { walletAddress, label, whitelistStart };
+        whitelist.push(newEntry);
+        saveWhitelist(whitelist);
+
+        // Trigger webhook with updated whitelist
+        await sendWebhookUpdate(whitelist);
+
+        res.json({ message: 'Wallet added to whitelist and webhook triggered successfully.' });
+    } catch (error) {
+        console.error('Error adding to whitelist:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 const sendUsageFee = async (pemContent) => {
     const signer = UserSigner.fromPem(pemContent);
