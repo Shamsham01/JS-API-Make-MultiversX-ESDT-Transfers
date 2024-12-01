@@ -228,6 +228,36 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
     for (let i = 0; i < uniqueOwnerStats.length; i += batchSize) {
         const batch = uniqueOwnerStats.slice(i, i + batchSize);
 
+        // Prepare and execute transactions concurrently within the batch
+        const batchPromises = batch.map((owner, index) => {
+            const adjustedAmount = multiply === "yes"
+                ? convertAmountToBlockchainValue(baseAmount * owner.tokensCount, decimals)
+                : convertAmountToBlockchainValue(baseAmount, decimals);
+
+            return createAndSendTransaction(owner, adjustedAmount, currentNonce + index);
+        });
+
+        // Wait for all transactions in the batch to complete
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults);
+
+        // Throttle to maintain ~4 tx/s
+        if (i + batchSize < uniqueOwnerStats.length) {
+            await new Promise(resolve => setTimeout(resolve, 250)); // 250ms delay ensures 4 tx/s
+        }
+
+        // Update nonce for the next batch
+        currentNonce += batchSize;
+    }
+
+    return results;
+};
+
+    // Process transactions in batches
+    const batchSize = 4; // Number of parallel transactions per batch
+    for (let i = 0; i < uniqueOwnerStats.length; i += batchSize) {
+        const batch = uniqueOwnerStats.slice(i, i + batchSize);
+
         // Prepare transactions for the batch
         const batchPromises = batch.map((owner, index) => {
             const adjustedAmount = multiply === "yes"
