@@ -49,7 +49,7 @@ const isWhitelisted = (walletAddress) => {
 };
 
 const saveWhitelist = (whitelist) => {
-    fs.writeFileSync(whitelistFilePath, JSON.stringify(whitelist, null, 2));
+    fs.writeFileSync(whitelistFilePath, JSON.stringify(whitelist, null, 2)); // Proper formatting with indentation
 };
 
 const sendWebhookUpdate = async (whitelist) => {
