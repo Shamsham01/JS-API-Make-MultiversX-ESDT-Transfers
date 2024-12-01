@@ -76,13 +76,14 @@ const logUserActivity = (walletAddress) => {
     const users = loadUsers();
     const currentDate = new Date().toISOString();
 
+    // Always log a new entry with the current timestamp
     users.push({
         walletAddress,
         authorizedAt: currentDate,
     });
 
     saveUsers(users);
-    return { message: `User activity logged for wallet ${walletAddress}.` };
+    return { message: `User activity logged for wallet ${walletAddress} at ${currentDate}.` };
 };
 
 // Check if a wallet is whitelisted
