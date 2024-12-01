@@ -7,6 +7,7 @@ const { loadWhitelist, saveWhitelist } = require('./utils/whitelist');
 const router = express.Router();
 const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make.com webhook URL
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN; // Admin Token for authorization
+const { loadUsers, logUserActivity } = require('./utils/whitelist');
 
 // Middleware to check admin token
 const checkAdminToken = (req, res, next) => {
@@ -105,6 +106,34 @@ router.post('/removeFromWhitelist', checkAdminToken, async (req, res) => {
         res.json({ message: 'Wallet removed from whitelist and webhook triggered successfully.' });
     } catch (error) {
         console.error('Error removing from whitelist:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add endpoint to fetch users
+router.get('/getUsers', checkAdminToken, (req, res) => {
+    try {
+        const users = loadUsers();
+        res.json({ users });
+    } catch (error) {
+        console.error('Error fetching users:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Add endpoint to log user activity manually (optional)
+router.post('/logUserActivity', checkAdminToken, (req, res) => {
+    try {
+        const { walletAddress } = req.body;
+
+        if (!walletAddress) {
+            return res.status(400).json({ error: 'Wallet address is required.' });
+        }
+
+        const response = logUserActivity(walletAddress);
+        res.json(response);
+    } catch (error) {
+        console.error('Error logging user activity:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
