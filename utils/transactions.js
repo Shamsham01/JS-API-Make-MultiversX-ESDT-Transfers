@@ -192,6 +192,18 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
     const results = [];
 
     // Helper function to create and send a transaction
+const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenTicker, baseAmount, multiply) => {
+    const signer = UserSigner.fromPem(pemContent);
+    const senderAddress = signer.getAddress();
+    const decimals = await getTokenDecimals(tokenTicker);
+
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    let currentNonce = accountOnNetwork.nonce;
+
+    const results = [];
+    const batchSize = 4; // Number of transactions to process in parallel
+
+    // Helper function to create and send a transaction
     const createAndSendTransaction = async (owner, adjustedAmount, nonce) => {
         try {
             const receiverAddress = new Address(owner.owner);
@@ -210,7 +222,7 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
             });
 
             tx.nonce = nonce;
-            tx.gasLimit = BigInt(500000);
+            tx.gasLimit = DEFAULT_GAS_LIMIT;
 
             await signer.sign(tx);
             const txHash = await provider.sendTransaction(tx);
@@ -224,37 +236,6 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
     };
 
     // Process transactions in batches
-    const batchSize = 4; // Number of parallel transactions per batch
-    for (let i = 0; i < uniqueOwnerStats.length; i += batchSize) {
-        const batch = uniqueOwnerStats.slice(i, i + batchSize);
-
-        // Prepare and execute transactions concurrently within the batch
-        const batchPromises = batch.map((owner, index) => {
-            const adjustedAmount = multiply === "yes"
-                ? convertAmountToBlockchainValue(baseAmount * owner.tokensCount, decimals)
-                : convertAmountToBlockchainValue(baseAmount, decimals);
-
-            return createAndSendTransaction(owner, adjustedAmount, currentNonce + index);
-        });
-
-        // Wait for all transactions in the batch to complete
-        const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults);
-
-        // Throttle to maintain ~4 tx/s
-        if (i + batchSize < uniqueOwnerStats.length) {
-            await new Promise(resolve => setTimeout(resolve, 250)); // 250ms delay ensures 4 tx/s
-        }
-
-        // Update nonce for the next batch
-        currentNonce += batchSize;
-    }
-
-    return results;
-};
-
-    // Process transactions in batches
-    const batchSize = 4; // Number of parallel transactions per batch
     for (let i = 0; i < uniqueOwnerStats.length; i += batchSize) {
         const batch = uniqueOwnerStats.slice(i, i + batchSize);
 
