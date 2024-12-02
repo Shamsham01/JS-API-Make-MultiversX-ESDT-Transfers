@@ -18,5 +18,8 @@ services:
       - key: ADMIN_KEY
         value: ""
         sync: true
+      - key: LOG_LEVEL
+        value: "info"
     autoDeploy: true
     region: frankfurt
+    healthCheckPath: /health
