@@ -1,21 +1,21 @@
 const express = require('express');
 const transactions = require('./utils/transactions');
-const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, Transaction, TransactionPayload } = require('@multiversx/sdk-core');
-const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
-const { UserSigner } = require('@multiversx/sdk-wallet');
 const { getTokenDecimals, convertAmountToBlockchainValue } = require('./utils/tokens');
-const { checkTransactionStatus } = require('./utils/transactions');
 const { isWhitelisted } = require('./utils/whitelist');
-
+const { UserSigner } = require('@multiversx/sdk-wallet');
+const { Address, TransactionPayload, TokenTransfer } = require('@multiversx/sdk-core');
+const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 
 const router = express.Router();
 
 // Constants
-const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
-const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
+const API_BASE_URL = "https://api.multiversx.com";
+const CHAIN_ID = process.env.CHAIN_ID || "1"; // Default to Mainnet if not specified
 const USAGE_FEE = 100; // Fee in REWARD tokens
 const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
-const CHAIN_ID = process.env.CHAIN_ID || "1"; // Retrieve from environment variables, default to Mainnet
+const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
+const DEFAULT_GAS_LIMIT = 500_000; // Gas limit for transactions
+const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: "sdk-js-v13" });
 
 // Middleware to handle the usage fee
 const handleUsageFee = async (req, res, next) => {
@@ -24,6 +24,7 @@ const handleUsageFee = async (req, res, next) => {
         const signer = UserSigner.fromPem(pemContent);
         const walletAddress = signer.getAddress().toString();
 
+        // Skip fee if user is whitelisted
         if (isWhitelisted(walletAddress)) {
             console.log(`Wallet ${walletAddress} is whitelisted. Skipping usage fee.`);
             next();
@@ -33,27 +34,19 @@ const handleUsageFee = async (req, res, next) => {
         const decimals = await getTokenDecimals(REWARD_TOKEN);
         const amount = convertAmountToBlockchainValue(USAGE_FEE, decimals);
 
-        const accountOnNetwork = await provider.getAccount(signer.getAddress());
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+        const tokenTransfer = TokenTransfer.fungibleFromAmount(REWARD_TOKEN, amount, decimals);
 
-        const tx = factory.createTransactionForESDTTokenTransfer({
-            sender: signer.getAddress(),
-            receiver: new Address(TREASURY_WALLET),
-            tokenTransfers: [
-                new TokenTransfer({
-                    token: new Token({ identifier: REWARD_TOKEN }),
-                    amount: BigInt(amount),
-                }),
-            ],
-        });
-
-        tx.nonce = accountOnNetwork.nonce;
-        tx.gasLimit = BigInt(500000);
+        const tx = new transactions.TransactionBuilder()
+            .setSender(signer.getAddress())
+            .setReceiver(new Address(TREASURY_WALLET))
+            .setGasLimit(DEFAULT_GAS_LIMIT)
+            .setData(transactions.TransactionPayload.esdtTransfer(tokenTransfer))
+            .setChainID(CHAIN_ID)
+            .build();
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        const status = await checkTransactionStatus(txHash.toString());
+        const status = await transactions.watchTransactionStatus(txHash.toString());
 
         if (status.status !== "success") {
             throw new Error('Usage fee transaction failed. Ensure sufficient REWARD tokens are available.');
@@ -67,153 +60,159 @@ const handleUsageFee = async (req, res, next) => {
     }
 };
 
-// 1. EGLD Transfer
+// EGLD Transfer
 router.post('/egldTransfer', handleUsageFee, async (req, res) => {
     try {
         const { recipient, amount } = req.body;
         const pemContent = req.body.walletPem;
 
-        const signer = UserSigner.fromPem(pemContent);
-        const accountOnNetwork = await provider.getAccount(signer.getAddress());
-        const receiverAddress = new Address(recipient);
+        if (!recipient || !amount) {
+            return res.status(400).json({ error: 'Recipient and amount are required for EGLD transfer.' });
+        }
 
-        const tx = new Transaction({
-            nonce: accountOnNetwork.nonce,
-            sender: signer.getAddress(),
-            receiver: receiverAddress,
-            value: BigInt(new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0)),
-            gasLimit: BigInt(50000),
-            data: new TransactionPayload(""),
-            chainID: CHAIN_ID,
+        const result = await transactions.sendEgld(pemContent, recipient, amount);
+
+        res.json({
+            message: "EGLD transfer executed successfully.",
+            usageFeeHash: req.usageFeeHash,
+            result,
         });
-
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-        const result = await checkTransactionStatus(txHash.toString());
-
-        res.json({ message: "EGLD transfer executed successfully.", usageFeeHash: req.usageFeeHash, result });
     } catch (error) {
-        console.error('Error executing EGLD transaction:', error.message);
+        console.error('Error executing EGLD transfer:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-// 2. ESDT Transfer
+// ESDT Transfer
 router.post('/esdtTransfer', handleUsageFee, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = req.body.walletPem;
 
-        const signer = UserSigner.fromPem(pemContent);
-        const decimals = await getTokenDecimals(tokenTicker);
-        const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
+        if (!recipient || !amount || !tokenTicker) {
+            return res.status(400).json({ error: 'Recipient, amount, and tokenTicker are required for ESDT transfer.' });
+        }
 
-        const accountOnNetwork = await provider.getAccount(signer.getAddress());
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
+        const result = await transactions.sendEsdtToken(pemContent, recipient, amount, tokenTicker);
 
-        const tx = factory.createTransactionForESDTTokenTransfer({
-            sender: signer.getAddress(),
-            receiver: new Address(recipient),
-            tokenTransfers: [
-                new TokenTransfer({
-                    token: new Token({ identifier: tokenTicker }),
-                    amount: BigInt(adjustedAmount),
-                }),
-            ],
+        res.json({
+            message: "ESDT transfer executed successfully.",
+            usageFeeHash: req.usageFeeHash,
+            result,
         });
-
-        tx.nonce = accountOnNetwork.nonce;
-        tx.gasLimit = BigInt(500000);
-
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-        const result = await checkTransactionStatus(txHash.toString());
-
-        res.json({ message: "ESDT transfer executed successfully.", usageFeeHash: req.usageFeeHash, result });
     } catch (error) {
-        console.error('Error executing ESDT transaction:', error.message);
+        console.error('Error executing ESDT transfer:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-// 3. NFT Transfer
+// NFT Transfer
 router.post('/nftTransfer', handleUsageFee, async (req, res) => {
     try {
         const { recipient, tokenIdentifier, tokenNonce } = req.body;
         const pemContent = req.body.walletPem;
 
         if (!recipient || !tokenIdentifier || tokenNonce === undefined) {
-            return res.status(400).json({ error: 'Missing required parameters: recipient, tokenIdentifier, tokenNonce.' });
+            return res.status(400).json({
+                error: 'Recipient, tokenIdentifier, and tokenNonce are required for NFT transfer.',
+            });
         }
 
         const result = await transactions.sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce);
 
-        res.json({ message: "NFT transfer executed successfully.", usageFeeHash: req.usageFeeHash, result });
+        res.json({
+            message: "NFT transfer executed successfully.",
+            usageFeeHash: req.usageFeeHash,
+            result,
+        });
     } catch (error) {
         console.error('Error executing NFT transfer:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-// 4. SFT Transfer
+// SFT Transfer
 router.post('/sftTransfer', handleUsageFee, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker, tokenNonce } = req.body;
         const pemContent = req.body.walletPem;
 
         if (!recipient || !amount || !tokenTicker || tokenNonce === undefined) {
-            return res.status(400).json({ error: 'Missing required parameters: recipient, amount, tokenTicker, tokenNonce.' });
+            return res.status(400).json({
+                error: 'Recipient, amount, tokenTicker, and tokenNonce are required for SFT transfer.',
+            });
         }
 
         const result = await transactions.sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
 
-        res.json({ message: "SFT transfer executed successfully.", usageFeeHash: req.usageFeeHash, result });
+        res.json({
+            message: "SFT transfer executed successfully.",
+            usageFeeHash: req.usageFeeHash,
+            result,
+        });
     } catch (error) {
         console.error('Error executing SFT transfer:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-// 5. Free NFT Mint Airdrop
+// Free NFT Mint Airdrop
 router.post('/freeNftMintAirdrop', handleUsageFee, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
         const pemContent = req.body.walletPem;
 
         if (!scAddress || !endpoint || !receiver || qty === undefined) {
-            return res.status(400).json({ error: 'Missing required parameters: scAddress, endpoint, receiver, qty.' });
+            return res.status(400).json({
+                error: 'scAddress, endpoint, receiver, and qty are required for the NFT mint airdrop.',
+            });
         }
 
         const result = await transactions.executeFreeNftMintAirdrop(pemContent, scAddress, endpoint, receiver, qty);
 
-        res.json({ message: "Free NFT mint airdrop executed successfully.", usageFeeHash: req.usageFeeHash, result });
+        res.json({
+            message: "Free NFT mint airdrop executed successfully.",
+            usageFeeHash: req.usageFeeHash,
+            result,
+        });
     } catch (error) {
         console.error('Error executing Free NFT Mint Airdrop:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
 
-// 6. ESDT Airdrop to NFT Owners
+// ESDT Airdrop to NFT Owners
 router.post('/distributeRewardsToNftOwners', handleUsageFee, async (req, res) => {
     try {
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
         const pemContent = req.body.walletPem;
 
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
-            return res.status(400).json({ error: 'Invalid owner stats provided.' });
+            return res.status(400).json({
+                error: 'Invalid uniqueOwnerStats provided. It must be an array.',
+            });
         }
         if (!tokenTicker || !baseAmount) {
-            return res.status(400).json({ error: 'Token ticker and base amount are required.' });
+            return res.status(400).json({
+                error: 'Token ticker and base amount are required.',
+            });
         }
 
-        const result = await transactions.distributeRewardsToNftOwners(pemContent, uniqueOwnerStats, tokenTicker, baseAmount, multiply);
+        const result = await transactions.distributeRewardsToNftOwners(
+            pemContent,
+            uniqueOwnerStats,
+            tokenTicker,
+            baseAmount,
+            multiply
+        );
 
-        res.json({ message: 'Rewards distribution completed.', usageFeeHash: req.usageFeeHash, results: result });
+        res.json({
+            message: "Rewards distribution to NFT owners completed successfully.",
+            usageFeeHash: req.usageFeeHash,
+            results: result,
+        });
     } catch (error) {
         console.error('Error during rewards distribution:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
-
-module.exports = router;
