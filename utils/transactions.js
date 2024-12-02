@@ -196,7 +196,7 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
     const createAndSendTransaction = async (owner, adjustedAmount, nonce) => {
         try {
             const receiverAddress = new Address(owner.owner);
-            const factoryConfig = new TransactionsFactoryConfig({ chainID: DEFAULT_CHAIN_ID });
+            const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
             const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
             const tx = factory.createTransactionForESDTTokenTransfer({
