@@ -3,8 +3,8 @@ const { Address, Transaction, TransactionPayload } = require('@multiversx/sdk-co
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
 const { isWhitelisted } = require('./utils/whitelist');
-const { getTokenDecimals, convertAmountToBlockchainValue } = require('./tokens');
-const { checkTransactionStatus, createEsdtTransferPayload, calculateEsdtGasLimit } = require('./transactions');
+const { getTokenDecimals, convertAmountToBlockchainValue } = require('./utils/tokens');
+const { checkTransactionStatus, createEsdtTransferPayload, calculateEsdtGasLimit } = require('./utils/transactions');
 
 const router = express.Router();
 
