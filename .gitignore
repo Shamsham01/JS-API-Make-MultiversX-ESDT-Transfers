@@ -1,9 +1,35 @@
+# Node.js dependencies
 node_modules/
 package-lock.json
+
+# Logs
 logs/
 *.log
 npm-debug.log*
-walletKey.pem
+yarn-debug.log*
+yarn-error.log*
+
+# Environment Variables
+.env
+.env.local
+.env.*.local
+
+# PEM Keys
+*.pem
+
+# System Files
+.DS_Store
+Thumbs.db
+
+# Editor Files
 .vscode/
 .idea/
-.DS_Store
+*.iml
+
+# Build Outputs
+dist/
+build/
+.cache/
+
+# Render Deployment Artifacts (if applicable)
+render.yaml
