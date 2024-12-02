@@ -1,69 +1,23 @@
 const express = require('express');
-const fetch = require('node-fetch');
-const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, Transaction, TransactionPayload } = require('@multiversx/sdk-core');
+const { Address, Transaction, TransactionPayload } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
-const BigNumber = require('bignumber.js');
 const { isWhitelisted } = require('./utils/whitelist');
+const { getTokenDecimals, convertAmountToBlockchainValue } = require('./tokens');
+const { checkTransactionStatus, createEsdtTransferPayload, calculateEsdtGasLimit } = require('./transactions');
 
 const router = express.Router();
 
 // Constants
-const USAGE_FEE = 100; // Fee in REWARD tokens
-const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
-const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
-const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
-const BATCH_SIZE = 3; // Transactions per batch
-const BATCH_DELAY_MS = 1000; // Delay between batches
+const USAGE_FEE = process.env.USAGE_FEE || 100; // Fee in REWARD tokens
+const REWARD_TOKEN = process.env.REWARD_TOKEN || "REWARD-cf6eac"; // Token identifier
+const TREASURY_WALLET = process.env.TREASURY_WALLET || "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
+const provider = new ProxyNetworkProvider(process.env.GATEWAY_URL || "https://gateway.multiversx.com", { clientName: "javascript-api" });
+const BATCH_SIZE = process.env.BATCH_SIZE || 3; // Transactions per batch
+const BATCH_DELAY_MS = process.env.BATCH_DELAY_MS || 1000; // Delay between batches
 const CHAIN_ID = process.env.CHAIN_ID || "1"; // Retrieve from environment variables, default to Mainnet
-const { getTokenDecimals, convertAmountToBlockchainValue } = require('./tokens');
-const { checkTransactionStatus, createEsdtTransferPayload, calculateEsdtGasLimit } = require('./transactions');
 
-// Helper Functions
-const getTokenDecimals = async (tokenTicker) => {
-    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
-    const response = await fetch(apiUrl);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch token info: ${response.statusText}`);
-    }
-    const tokenInfo = await response.json();
-    return tokenInfo.decimals || 0;
-};
-
-const convertAmountToBlockchainValue = (amount, decimals) => {
-    const factor = new BigNumber(10).pow(decimals);
-    return new BigNumber(amount).multipliedBy(factor).toFixed(0);
-};
-
-const createEsdtTransferPayload = (tokenIdentifier, amount) => {
-    const hexIdentifier = Buffer.from(tokenIdentifier).toString('hex');
-    const hexAmount = BigInt(amount).toString(16);
-    return `ESDTTransfer@${hexIdentifier}@${hexAmount}`;
-};
-
-const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
-    const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
-    for (let i = 0; i < retries; i++) {
-        try {
-            const response = await fetch(txStatusUrl);
-            if (!response.ok) throw new Error(`HTTP error ${response.status}`);
-            const txStatus = await response.json();
-            if (txStatus.status === "success") return { status: "success", txHash };
-            if (txStatus.status === "fail") return { status: "fail", txHash };
-        } catch (error) {
-            console.error(`Error fetching transaction ${txHash}: ${error.message}`);
-        }
-        await new Promise(resolve => setTimeout(resolve, delay));
-    }
-    throw new Error(`Transaction ${txHash} status could not be determined after ${retries} retries.`);
-};
-
-const calculateEsdtGasLimit = (tokensCount = 1) => {
-    const BASE_GAS = 500000;
-    const GAS_PER_TOKEN = 10000; // Optional extra gas per token
-    return BigInt(BASE_GAS + tokensCount * GAS_PER_TOKEN);
-};
-
+// Middleware to handle the usage fee
 const sendUsageFee = async (pemContent) => {
     const signer = UserSigner.fromPem(pemContent);
     const senderAddress = signer.getAddress();
@@ -73,25 +27,21 @@ const sendUsageFee = async (pemContent) => {
     const decimals = await getTokenDecimals(REWARD_TOKEN);
     const convertedAmount = convertAmountToBlockchainValue(USAGE_FEE, decimals);
 
-    const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
-    const factory = new TransferTransactionsFactory({ config: factoryConfig });
+    const payload = createEsdtTransferPayload(REWARD_TOKEN, convertedAmount);
 
-    const tx = factory.createTransactionForESDTTokenTransfer({
+    const tx = new Transaction({
+        nonce,
         sender: senderAddress,
         receiver: receiverAddress,
-        tokenTransfers: [
-            new TokenTransfer({
-                token: new Token({ identifier: REWARD_TOKEN }),
-                amount: BigInt(convertedAmount),
-            }),
-        ],
+        value: '0',
+        gasLimit: BigInt(500000),
+        data: new TransactionPayload(payload),
+        chainID: CHAIN_ID,
     });
-
-    tx.nonce = nonce;
-    tx.gasLimit = BigInt(500000);
 
     await signer.sign(tx);
     const txHash = await provider.sendTransaction(tx);
+
     const status = await checkTransactionStatus(txHash.toString());
     if (status.status !== "success") {
         throw new Error('UsageFee transaction failed. Ensure sufficient REWARD tokens are available.');
@@ -119,7 +69,6 @@ const handleUsageFee = async (req, res, next) => {
         res.status(400).json({ error: error.message });
     }
 };
-
 
 // **Endpoints**
 
@@ -334,7 +283,6 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
         const pemContent = req.body.walletPem;
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
 
-        // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
             return res.status(400).json({ error: 'Invalid owner stats provided.' });
         }
@@ -352,10 +300,8 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
 
         const txHashes = [];
 
-        // Process transactions in batches of 3
-        const batchSize = 3;
-        for (let i = 0; i < uniqueOwnerStats.length; i += batchSize) {
-            const batch = uniqueOwnerStats.slice(i, i + batchSize);
+        for (let i = 0; i < uniqueOwnerStats.length; i += BATCH_SIZE) {
+            const batch = uniqueOwnerStats.slice(i, i + BATCH_SIZE);
 
             const batchPromises = batch.map(async (ownerData, index) => {
                 try {
@@ -389,13 +335,12 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
             const batchResults = await Promise.all(batchPromises);
             txHashes.push(...batchResults);
 
-            if (i + batchSize < uniqueOwnerStats.length) {
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            if (i + BATCH_SIZE < uniqueOwnerStats.length) {
+                await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
             }
             currentNonce += batch.length;
         }
 
-        // Poll transaction statuses
         const statusResults = await Promise.all(
             txHashes.map(({ owner, txHash }) =>
                 checkTransactionStatus(txHash)
