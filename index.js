@@ -1,8 +1,9 @@
 const express = require('express');
-const bodyParser = require('body-parser');
+const cors = require('cors'); // Enable CORS for external requests
 const adminRoutes = require('./admin');
 const transfersRoutes = require('./transfers');
 const { logUserActivity } = require('./utils/whitelist');
+const { UserSigner } = require('@multiversx/sdk-wallet');
 
 // Initialize the Express application
 const app = express();
@@ -11,7 +12,13 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 
 // Middleware
-app.use(bodyParser.json()); // Parse JSON-encoded bodies
+app.use(cors()); // Enable CORS
+app.use(express.json()); // Parse JSON-encoded bodies
+
+// Health Check Endpoint
+app.get('/health', (req, res) => {
+    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
+});
 
 // Routes
 app.use('/admin', adminRoutes);
@@ -26,8 +33,9 @@ app.post('/authorize', (req, res) => {
             throw new Error('Invalid PEM content');
         }
 
-        // Simulate deriving wallet address from PEM content
-        const walletAddress = 'derived_wallet_address_placeholder'; // Replace with actual wallet derivation logic
+        // Derive wallet address from PEM content
+        const signer = UserSigner.fromPem(pemContent);
+        const walletAddress = signer.getAddress().toString();
 
         // Log user activity in `users.json`
         const logResult = logUserActivity(walletAddress);
@@ -45,5 +53,5 @@ app.post('/authorize', (req, res) => {
 
 // Start the server
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`[INFO] Server is running on port ${PORT}`);
 });
