@@ -1,11 +1,16 @@
-const fetch = require('node-fetch');
+const { ApiNetworkProvider } = require('@multiversx/sdk-network-providers');
 const BigNumber = require('bignumber.js');
 
 // Constants
 const API_BASE_URL = "https://api.multiversx.com";
+const provider = new ApiNetworkProvider(API_BASE_URL); // Replacing manual fetch calls with SDK provider
 const tokenDecimalsCache = {}; // In-memory cache for token decimals
 
-// Fetch token decimals
+/**
+ * Fetch token decimals
+ * @param {string} tokenTicker - The token identifier (e.g., "REWARD-cf6eac")
+ * @returns {Promise<number>} - Token decimals
+ */
 const getTokenDecimals = async (tokenTicker) => {
     try {
         // Check if decimals are cached
@@ -13,12 +18,8 @@ const getTokenDecimals = async (tokenTicker) => {
             return tokenDecimalsCache[tokenTicker];
         }
 
-        const apiUrl = `${API_BASE_URL}/tokens/${tokenTicker}`;
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-            throw new Error(`Failed to fetch token info for ${tokenTicker}: ${response.statusText}`);
-        }
-        const tokenInfo = await response.json();
+        // Fetch token information using MultiversX SDK
+        const tokenInfo = await provider.getToken(tokenTicker);
         const decimals = tokenInfo.decimals || 0;
 
         // Cache the decimals
@@ -31,7 +32,12 @@ const getTokenDecimals = async (tokenTicker) => {
     }
 };
 
-// Convert amount to blockchain value based on decimals
+/**
+ * Convert human-readable amount to blockchain value
+ * @param {number|string} amount - The human-readable amount
+ * @param {number} decimals - The number of decimals for the token
+ * @returns {string} - Blockchain value as a string
+ */
 const convertAmountToBlockchainValue = (amount, decimals) => {
     try {
         const factor = new BigNumber(10).pow(decimals);
@@ -42,7 +48,12 @@ const convertAmountToBlockchainValue = (amount, decimals) => {
     }
 };
 
-// Convert blockchain value to human-readable amount
+/**
+ * Convert blockchain value to human-readable amount
+ * @param {string|number} value - The blockchain value
+ * @param {number} decimals - The number of decimals for the token
+ * @returns {string} - Human-readable amount
+ */
 const convertBlockchainValueToAmount = (value, decimals) => {
     try {
         const factor = new BigNumber(10).pow(decimals);
