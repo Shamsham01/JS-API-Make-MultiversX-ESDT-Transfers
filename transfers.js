@@ -343,101 +343,103 @@ router.post('/freeNftMintAirdrop', handleUsageFee, async (req, res) => {
 });
 
 // 6. ESDT Airdrop to NFT Owners
-router.post('/distributeRewardsToNftOwners', handleUsageFee, async (req, res) => {
+router.post('/distributeRewardsToNftOwners', async (req, res) => {
     try {
-        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
         const pemContent = req.body.walletPem;
+        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
 
-        // Validate input data
-        if (!Array.isArray(uniqueOwnerStats) || uniqueOwnerStats.length === 0) {
-            return res.status(400).json({ error: 'uniqueOwnerStats must be a non-empty array.' });
+        // Validate inputs
+        if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
+            return res.status(400).json({ error: 'Invalid owner stats provided.' });
         }
-        if (!tokenTicker || typeof tokenTicker !== 'string') {
-            return res.status(400).json({ error: 'Invalid or missing tokenTicker.' });
-        }
-        if (!baseAmount || isNaN(baseAmount) || baseAmount <= 0) {
-            return res.status(400).json({ error: 'baseAmount must be a positive number.' });
+        if (!tokenTicker || !baseAmount) {
+            return res.status(400).json({ error: 'Token ticker and base amount are required.' });
         }
 
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
-        const decimals = await getTokenDecimals(tokenTicker);
 
-        // Fetch account information
         const accountOnNetwork = await provider.getAccount(senderAddress);
         let currentNonce = accountOnNetwork.nonce;
 
-        // Helper function to create and send ESDT transfer transactions
-        const createTransaction = async (owner, amount, nonce) => {
-            try {
-                const receiverAddress = new Address(owner);
-                const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
-                const amountHex = BigInt(adjustedAmount).toString(16);
-                const tokenHex = Buffer.from(tokenTicker).toString('hex');
+        const decimals = await getTokenDecimals(tokenTicker);
+        const multiplierEnabled = multiply === "yes";
 
-                const payload = `ESDTTransfer@${tokenHex}@${amountHex}`;
+        const txHashes = [];
 
-                const tx = new Transaction({
-                    nonce,
-                    sender: senderAddress,
-                    receiver: receiverAddress,
-                    value: '0',
-                    gasLimit: BigInt(500000),
-                    data: new TransactionPayload(payload),
-                    chainID: '1',
-                });
+        // Helper function to create a transaction
+        const createTransaction = (owner, tokensCount, nonce) => {
+            const adjustedAmount = multiplierEnabled
+                ? convertAmountToBlockchainValue(baseAmount * tokensCount, decimals)
+                : convertAmountToBlockchainValue(baseAmount, decimals);
 
-                await signer.sign(tx);
-                const txHash = await provider.sendTransaction(tx);
+            const receiverAddress = new Address(owner);
+            const tokenTransfer = new TokenTransfer({
+                token: new Token({ identifier: tokenTicker }),
+                amount: BigInt(adjustedAmount),
+            });
 
-                return { owner, txHash };
-            } catch (error) {
-                console.error(`Error creating transaction for ${owner}:`, error.message);
-                return { owner, error: error.message };
-            }
+            const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+            const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+            const tx = factory.createTransactionForESDTTokenTransfer({
+                sender: senderAddress,
+                receiver: receiverAddress,
+                tokenTransfers: [tokenTransfer],
+            });
+
+            tx.nonce = nonce;
+            tx.gasLimit = calculateEsdtGasLimit();
+
+            return tx;
         };
 
-        // Process transactions in batches for parallel processing
-        const distributeInBatches = async (owners, batchSize, multiplier) => {
-            const results = [];
+        // Step 1: Sign and send all transactions in parallel batches
+        for (let i = 0; i < uniqueOwnerStats.length; i += 3) {
+            const batch = uniqueOwnerStats.slice(i, i + 3);
+            const batchPromises = batch.map((ownerData, index) => {
+                const tx = createTransaction(
+                    ownerData.owner,
+                    ownerData.tokensCount,
+                    currentNonce + i + index
+                );
 
-            for (let i = 0; i < owners.length; i += batchSize) {
-                const batch = owners.slice(i, i + batchSize);
+                return signer.sign(tx).then(async () => {
+                    const txHash = await provider.sendTransaction(tx);
+                    return { owner: ownerData.owner, txHash: txHash.toString() };
+                }).catch(error => ({
+                    owner: ownerData.owner,
+                    error: error.message,
+                    status: "failed"
+                }));
+            });
 
-                const batchPromises = batch.map((ownerData, index) => {
-                    const tokensCount = ownerData.tokensCount || 1; // Default to 1 if tokensCount is missing
-                    const amount = multiplier === 'yes'
-                        ? baseAmount * tokensCount
-                        : baseAmount;
+            // Process batch
+            const batchResults = await Promise.all(batchPromises);
+            txHashes.push(...batchResults);
 
-                    return createTransaction(ownerData.owner, amount, currentNonce + index);
-                });
-
-                // Execute the batch and collect results
-                const batchResults = await Promise.all(batchPromises);
-                results.push(...batchResults);
-
-                // Update nonce and throttle batches
-                currentNonce += batchSize;
-                if (i + batchSize < owners.length) {
-                    await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay
-                }
+            // Throttle to 3 transactions per second
+            if (i + 3 < uniqueOwnerStats.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay for next batch
             }
+        }
 
-            return results;
-        };
+        // Step 2: Poll for transaction statuses in parallel after all transactions are sent
+        const statusPromises = txHashes.map(({ owner, txHash }) =>
+            checkTransactionStatus(txHash)
+                .then(status => ({ owner, txHash, status: status.status }))
+                .catch(error => ({ owner, txHash, error: error.message, status: 'failed' }))
+        );
+        const statusResults = await Promise.all(statusPromises);
 
-        // Distribute rewards
-        const batchSize = 4; // Process 4 transactions in parallel
-        const results = await distributeInBatches(uniqueOwnerStats, batchSize, multiply);
-
+        // Return transaction results with UsageFee hash
         res.json({
-            message: 'Rewards distribution completed successfully.',
-            usageFeeHash: req.usageFeeHash,
-            results,
+            message: 'Rewards distribution completed.',
+            usageFeeHash: req.usageFeeHash, // Include the UsageFee transaction hash
+            results: statusResults, // Existing results from the rewards distribution
         });
     } catch (error) {
-        console.error('Error during ESDT rewards distribution:', error.message);
+        console.error('Error during rewards distribution:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
