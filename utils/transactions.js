@@ -6,7 +6,7 @@ const { getTokenDecimals, convertAmountToBlockchainValue } = require('./tokens')
 
 // Constants
 const API_BASE_URL = "https://api.multiversx.com";
-const CHAIN_ID = "1"; // Mainnet chain ID
+const { CHAIN_ID } = process.env;
 const DEFAULT_GAS_LIMIT = BigInt(500000); // Default gas limit for basic transactions
 const provider = new ProxyNetworkProvider(`${API_BASE_URL}`, { clientName: "javascript-api" });
 
@@ -190,24 +190,13 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
     let currentNonce = accountOnNetwork.nonce;
 
     const results = [];
-
-    // Helper function to create and send a transaction
-const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenTicker, baseAmount, multiply) => {
-    const signer = UserSigner.fromPem(pemContent);
-    const senderAddress = signer.getAddress();
-    const decimals = await getTokenDecimals(tokenTicker);
-
-    const accountOnNetwork = await provider.getAccount(senderAddress);
-    let currentNonce = accountOnNetwork.nonce;
-
-    const results = [];
     const batchSize = 4; // Number of transactions to process in parallel
 
     // Helper function to create and send a transaction
     const createAndSendTransaction = async (owner, adjustedAmount, nonce) => {
         try {
             const receiverAddress = new Address(owner.owner);
-            const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
+            const factoryConfig = new TransactionsFactoryConfig({ chainID: DEFAULT_CHAIN_ID });
             const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
             const tx = factory.createTransactionForESDTTokenTransfer({
@@ -222,7 +211,7 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
             });
 
             tx.nonce = nonce;
-            tx.gasLimit = DEFAULT_GAS_LIMIT;
+            tx.gasLimit = BigInt(500000 + adjustedAmount * 1000); // Adjusted gas limit for transaction size
 
             await signer.sign(tx);
             const txHash = await provider.sendTransaction(tx);
