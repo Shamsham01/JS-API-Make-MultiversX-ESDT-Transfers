@@ -16,6 +16,8 @@ const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { cl
 const BATCH_SIZE = 3; // Transactions per batch
 const BATCH_DELAY_MS = 1000; // Delay between batches
 const CHAIN_ID = process.env.CHAIN_ID || "1"; // Retrieve from environment variables, default to Mainnet
+const { getTokenDecimals, convertAmountToBlockchainValue } = require('./tokens');
+const { checkTransactionStatus, createEsdtTransferPayload, calculateEsdtGasLimit } = require('./transactions');
 
 // Helper Functions
 const getTokenDecimals = async (tokenTicker) => {
@@ -329,8 +331,8 @@ router.post('/freeNftMintAirdrop', handleUsageFee, async (req, res) => {
 // 6. ESDT Airdrop to NFT Owners
 router.post('/distributeRewardsToNftOwners', async (req, res) => {
     try {
-        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
         const pemContent = req.body.walletPem;
+        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
 
         // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
@@ -350,26 +352,27 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
 
         const txHashes = [];
 
-        // Batch Processing
-        for (let i = 0; i < uniqueOwnerStats.length; i += BATCH_SIZE) {
-            const batch = uniqueOwnerStats.slice(i, i + BATCH_SIZE);
+        // Process transactions in batches of 3
+        const batchSize = 3;
+        for (let i = 0; i < uniqueOwnerStats.length; i += batchSize) {
+            const batch = uniqueOwnerStats.slice(i, i + batchSize);
 
             const batchPromises = batch.map(async (ownerData, index) => {
-                const tokensCount = ownerData.tokensCount;
-                const adjustedAmount = multiplierEnabled
-                    ? convertAmountToBlockchainValue(baseAmount * tokensCount, decimals)
-                    : convertAmountToBlockchainValue(baseAmount, decimals);
-
                 try {
+                    const tokensCount = ownerData.tokensCount;
+                    const adjustedAmount = multiplierEnabled
+                        ? convertAmountToBlockchainValue(baseAmount * tokensCount, decimals)
+                        : convertAmountToBlockchainValue(baseAmount, decimals);
+
                     const receiverAddress = new Address(ownerData.owner);
-                    const payload = createEsdtTransferPayload(tokenTicker, adjustedAmount); // Construct the payload
+                    const payload = createEsdtTransferPayload(tokenTicker, adjustedAmount);
 
                     const tx = new Transaction({
                         nonce: currentNonce + index,
                         sender: senderAddress,
                         receiver: receiverAddress,
-                        value: '0', // No EGLD sent in ESDT transfers
-                        gasLimit: calculateEsdtGasLimit(tokensCount), // Adjust based on token count
+                        value: '0',
+                        gasLimit: calculateEsdtGasLimit(),
                         data: new TransactionPayload(payload),
                         chainID: CHAIN_ID,
                     });
@@ -386,15 +389,13 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
             const batchResults = await Promise.all(batchPromises);
             txHashes.push(...batchResults);
 
-            // Throttle to prevent API rate limits
-            if (i + BATCH_SIZE < uniqueOwnerStats.length) {
-                await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
+            if (i + batchSize < uniqueOwnerStats.length) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
             }
-
-            currentNonce += BATCH_SIZE; // Increment nonce for next batch
+            currentNonce += batch.length;
         }
 
-        // Poll for Transaction Statuses
+        // Poll transaction statuses
         const statusResults = await Promise.all(
             txHashes.map(({ owner, txHash }) =>
                 checkTransactionStatus(txHash)
@@ -403,10 +404,8 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
             )
         );
 
-        // Respond with results
         res.json({
             message: 'Rewards distribution completed.',
-            usageFeeHash: req.usageFeeHash, // Include Usage Fee transaction hash
             results: statusResults,
         });
     } catch (error) {
@@ -414,7 +413,5 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
-
 
 module.exports = router;
