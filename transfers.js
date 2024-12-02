@@ -30,6 +30,13 @@ const convertAmountToBlockchainValue = (amount, decimals) => {
     return new BigNumber(amount).multipliedBy(factor).toFixed(0);
 };
 
+// Function to generate ESDT payload
+const createEsdtTransferPayload = (tokenIdentifier, amount) => {
+    const hexIdentifier = Buffer.from(tokenIdentifier).toString('hex');
+    const hexAmount = BigInt(amount).toString(16);
+    return `ESDTTransfer@${hexIdentifier}@${hexAmount}`;
+};
+
 const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
     const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
     for (let i = 0; i < retries; i++) {
@@ -45,6 +52,11 @@ const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
         await new Promise(resolve => setTimeout(resolve, delay));
     }
     throw new Error(`Transaction ${txHash} status could not be determined after ${retries} retries.`);
+};
+
+// Function to calculate gas limit for ESDT transfers
+const calculateEsdtGasLimit = () => {
+    return BigInt(500000); // Base gas limit for ESDT transfers
 };
 
 const sendUsageFee = async (pemContent) => {
