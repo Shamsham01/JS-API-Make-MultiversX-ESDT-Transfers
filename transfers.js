@@ -2,8 +2,8 @@ const express = require('express');
 const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, Transaction, TransactionPayload } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
-const { getTokenDecimals, convertAmountToBlockchainValue } = require('./tokens');
-const { checkTransactionStatus } = require('./transactions');
+const { getTokenDecimals, convertAmountToBlockchainValue } = require('./utils/tokens');
+const { checkTransactionStatus } = require('./utils/transactions');
 const { isWhitelisted } = require('./utils/whitelist');
 
 const router = express.Router();
