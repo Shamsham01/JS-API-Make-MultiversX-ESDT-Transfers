@@ -332,6 +332,7 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
         const pemContent = req.body.walletPem;
 
+        // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
             return res.status(400).json({ error: 'Invalid owner stats provided.' });
         }
@@ -349,6 +350,7 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
 
         const txHashes = [];
 
+        // Batch Processing
         for (let i = 0; i < uniqueOwnerStats.length; i += BATCH_SIZE) {
             const batch = uniqueOwnerStats.slice(i, i + BATCH_SIZE);
 
@@ -360,13 +362,14 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
 
                 try {
                     const receiverAddress = new Address(ownerData.owner);
-                    const payload = createEsdtTransferPayload(tokenTicker, adjustedAmount);
+                    const payload = createEsdtTransferPayload(tokenTicker, adjustedAmount); // Construct the payload
+
                     const tx = new Transaction({
                         nonce: currentNonce + index,
                         sender: senderAddress,
                         receiver: receiverAddress,
-                        value: '0',
-                        gasLimit: calculateEsdtGasLimit(tokensCount),
+                        value: '0', // No EGLD sent in ESDT transfers
+                        gasLimit: calculateEsdtGasLimit(tokensCount), // Adjust based on token count
                         data: new TransactionPayload(payload),
                         chainID: CHAIN_ID,
                     });
@@ -383,12 +386,15 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
             const batchResults = await Promise.all(batchPromises);
             txHashes.push(...batchResults);
 
+            // Throttle to prevent API rate limits
             if (i + BATCH_SIZE < uniqueOwnerStats.length) {
                 await new Promise(resolve => setTimeout(resolve, BATCH_DELAY_MS));
             }
-            currentNonce += BATCH_SIZE;
+
+            currentNonce += BATCH_SIZE; // Increment nonce for next batch
         }
 
+        // Poll for Transaction Statuses
         const statusResults = await Promise.all(
             txHashes.map(({ owner, txHash }) =>
                 checkTransactionStatus(txHash)
@@ -397,9 +403,10 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
             )
         );
 
+        // Respond with results
         res.json({
             message: 'Rewards distribution completed.',
-            usageFeeHash: req.usageFeeHash,
+            usageFeeHash: req.usageFeeHash, // Include Usage Fee transaction hash
             results: statusResults,
         });
     } catch (error) {
@@ -407,6 +414,7 @@ router.post('/distributeRewardsToNftOwners', async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 
 module.exports = router;
