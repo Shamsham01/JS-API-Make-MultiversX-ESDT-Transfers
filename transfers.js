@@ -45,14 +45,14 @@ const handleUsageFee = async (req, res, next) => {
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        const status = await transactions.watchTransactionStatus(txHash.toString());
+        const status = await provider.getTransactionStatus(txHash.toString());
 
-        if (status.status !== "success") {
+        if (status.isSuccessful()) {
+            req.usageFeeHash = txHash.toString();
+            next();
+        } else {
             throw new Error('Usage fee transaction failed. Ensure sufficient REWARD tokens are available.');
         }
-
-        req.usageFeeHash = txHash.toString();
-        next();
     } catch (error) {
         console.error('Error processing usage fee:', error.message);
         res.status(400).json({ error: error.message });
