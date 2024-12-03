@@ -140,15 +140,12 @@ const logUserActivity = async (walletAddress) => {
 // Check if a wallet is whitelisted
 const isWhitelisted = async (walletAddress) => {
     const { error } = walletAddressSchema.validate(walletAddress);
-    if (error) throw new Error(error.details[0].message);
-
-    try {
-        const whitelist = await loadWhitelist();
-        return whitelist.some(entry => entry.walletAddress === walletAddress);
-    } catch (error) {
-        console.error('Error checking if wallet is whitelisted:', error.message);
-        return false;
+    if (error) {
+        throw new Error(`Wallet address validation failed: ${error.details[0].message}`);
     }
+
+    const whitelist = await loadWhitelist();
+    return whitelist.some(entry => entry.walletAddress === walletAddress);
 };
 
 module.exports = {
