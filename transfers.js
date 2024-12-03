@@ -1,5 +1,5 @@
 const express = require('express');
-const { TransactionBuilder } = require('@multiversx/sdk-core');
+const transactions = require('./utils/transactions');
 const { getTokenDecimals, convertAmountToBlockchainValue } = require('./utils/tokens');
 const { isWhitelisted } = require('./utils/whitelist');
 const { UserSigner } = require('@multiversx/sdk-wallet');
@@ -15,7 +15,7 @@ const USAGE_FEE = 100; // Fee in REWARD tokens
 const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
 const DEFAULT_GAS_LIMIT = 500_000; // Gas limit for transactions
-const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: "sdk-js-v13" });
+const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: "MultiversX Transfers API" }); // Updated client name
 
 // Middleware to handle the usage fee
 const handleUsageFee = async (req, res, next) => {
@@ -40,7 +40,7 @@ const handleUsageFee = async (req, res, next) => {
             .setSender(signer.getAddress())
             .setReceiver(new Address(TREASURY_WALLET))
             .setGasLimit(DEFAULT_GAS_LIMIT)
-            .setData(transactions.TransactionPayload.esdtTransfer(tokenTransfer))
+            .setData(TransactionPayload.esdtTransfer(tokenTransfer))
             .setChainID(CHAIN_ID)
             .build();
 
@@ -70,6 +70,7 @@ router.post('/egldTransfer', handleUsageFee, async (req, res) => {
             return res.status(400).json({ error: 'Recipient and amount are required for EGLD transfer.' });
         }
 
+        // Send EGLD Transaction
         const result = await transactions.sendEgld(pemContent, recipient, amount);
 
         res.json({
@@ -93,6 +94,7 @@ router.post('/esdtTransfer', handleUsageFee, async (req, res) => {
             return res.status(400).json({ error: 'Recipient, amount, and tokenTicker are required for ESDT transfer.' });
         }
 
+        // Send ESDT Transaction
         const result = await transactions.sendEsdtToken(pemContent, recipient, amount, tokenTicker);
 
         res.json({
@@ -118,6 +120,7 @@ router.post('/nftTransfer', handleUsageFee, async (req, res) => {
             });
         }
 
+        // Send NFT Transaction
         const result = await transactions.sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce);
 
         res.json({
@@ -143,6 +146,7 @@ router.post('/sftTransfer', handleUsageFee, async (req, res) => {
             });
         }
 
+        // Send SFT Transaction
         const result = await transactions.sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
 
         res.json({
@@ -168,6 +172,7 @@ router.post('/freeNftMintAirdrop', handleUsageFee, async (req, res) => {
             });
         }
 
+        // Execute Free NFT Mint Airdrop
         const result = await transactions.executeFreeNftMintAirdrop(pemContent, scAddress, endpoint, receiver, qty);
 
         res.json({
@@ -187,6 +192,7 @@ router.post('/distributeRewardsToNftOwners', handleUsageFee, async (req, res) =>
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
         const pemContent = req.body.walletPem;
 
+        // Validation
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
             return res.status(400).json({
                 error: 'Invalid uniqueOwnerStats provided. It must be an array.',
@@ -198,7 +204,8 @@ router.post('/distributeRewardsToNftOwners', handleUsageFee, async (req, res) =>
             });
         }
 
-        const result = await transactions.distributeRewardsToNftOwners(
+        // Execute rewards distribution
+        const results = await transactions.distributeRewardsToNftOwners(
             pemContent,
             uniqueOwnerStats,
             tokenTicker,
@@ -209,7 +216,7 @@ router.post('/distributeRewardsToNftOwners', handleUsageFee, async (req, res) =>
         res.json({
             message: "Rewards distribution to NFT owners completed successfully.",
             usageFeeHash: req.usageFeeHash,
-            results: result,
+            results,
         });
     } catch (error) {
         console.error('Error during rewards distribution:', error.message);
