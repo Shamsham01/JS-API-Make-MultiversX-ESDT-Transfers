@@ -143,6 +143,11 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         // Create token transfer object
         const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, adjustedAmount, decimals);
 
+        // Fetch sender's account nonce
+        const accountOnChain = await provider.getAccount(senderAddress);
+        const senderNonce = accountOnChain.nonce;
+        console.log(`Fetched sender's nonce: ${senderNonce}`);
+
         // Configure transaction factory
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
@@ -152,6 +157,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
             sender: senderAddress,
             receiver: receiverAddress,
             tokenTransfers: [tokenTransfer],
+            nonce: senderNonce, // Explicitly set nonce
         });
 
         console.log(`Transaction prepared successfully.`);
