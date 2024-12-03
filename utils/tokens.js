@@ -1,10 +1,8 @@
-const { Token } = require('@multiversx/sdk-core');
-const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
+const fetch = require('node-fetch');
 const BigNumber = require('bignumber.js');
 
 // Constants
 const API_BASE_URL = process.env.API_PROVIDER || "https://api.multiversx.com";
-const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: "sdk-js-v13" });
 const tokenDecimalsCache = {}; // In-memory cache for token decimals
 
 /**
@@ -19,14 +17,21 @@ const getTokenDecimals = async (tokenTicker) => {
             return tokenDecimalsCache[tokenTicker];
         }
 
-        const token = await provider.getToken(tokenTicker);
+        const apiUrl = `${API_BASE_URL}/tokens/${tokenTicker}`;
+        const response = await fetch(apiUrl);
 
-        // Validate token structure
-        if (!token || typeof token.decimals !== "number") {
+        if (!response.ok) {
+            throw new Error(`Failed to fetch token info for ${tokenTicker}: ${response.statusText}`);
+        }
+
+        const tokenInfo = await response.json();
+
+        // Validate tokenInfo structure
+        if (!tokenInfo || typeof tokenInfo.decimals !== "number") {
             throw new Error(`Invalid token data received for ${tokenTicker}`);
         }
 
-        const decimals = token.decimals;
+        const decimals = tokenInfo.decimals;
 
         // Cache the decimals
         tokenDecimalsCache[tokenTicker] = decimals;
