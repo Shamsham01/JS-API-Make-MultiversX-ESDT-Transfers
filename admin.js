@@ -1,5 +1,5 @@
 const express = require('express');
-const axios = require('axios'); // Replace node-fetch with axios
+const axios = require('axios');
 const Joi = require('joi');
 const { loadWhitelist, saveWhitelist, loadUsers, saveUsers, logUserActivity } = require('./utils/whitelist');
 const { UserSigner } = require('@multiversx/sdk-wallet');
@@ -43,15 +43,17 @@ const sendWebhookUpdate = async (type, payload, retries = 3) => {
     }
 };
 
-// Validation schemas
+// Updated Joi Validation Schemas
+const walletAddressSchema = Joi.string().pattern(/^erd[a-z0-9]{59}$/).required();
+
 const addToWhitelistSchema = Joi.object({
-    walletAddress: Joi.string().pattern(/^erd[a-z0-9]{62}$/).required(),
+    walletAddress: walletAddressSchema,
     label: Joi.string().min(3).required(),
     whitelistStart: Joi.date().iso().required(),
 });
 
 const removeFromWhitelistSchema = Joi.object({
-    walletAddress: Joi.string().pattern(/^erd[a-z0-9]{62}$/).required(),
+    walletAddress: walletAddressSchema,
 });
 
 // Add wallet to whitelist
