@@ -45,7 +45,7 @@ const sendWebhookUpdate = async (type, payload, retries = 3) => {
 
 // Validation schemas
 const addToWhitelistSchema = Joi.object({
-    walletAddress: Joi.string().pattern(/^erd[a-z0-9]{58}$/).required(),
+    walletAddress: Joi.string().pattern(/^erd[a-z0-9]{62}$/).required();
     label: Joi.string().min(3).required(),
     whitelistStart: Joi.date().iso().required(),
 });
