@@ -1,5 +1,5 @@
 const express = require('express');
-const transactions = require('./utils/transactions');
+const { TransactionBuilder } = require('@multiversx/sdk-core');
 const { getTokenDecimals, convertAmountToBlockchainValue } = require('./utils/tokens');
 const { isWhitelisted } = require('./utils/whitelist');
 const { UserSigner } = require('@multiversx/sdk-wallet');
