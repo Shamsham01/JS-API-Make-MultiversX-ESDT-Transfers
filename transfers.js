@@ -45,9 +45,9 @@ const handleUsageFee = async (req, res, next) => {
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        const status = await provider.waitForTx(txHash);
+        const status = await transactions.watchTransactionStatus(txHash.toString());
 
-        if (!status.isSuccessful()) {
+        if (status.status !== "success") {
             throw new Error('Usage fee transaction failed. Ensure sufficient REWARD tokens are available.');
         }
 
