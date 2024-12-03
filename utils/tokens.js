@@ -1,9 +1,10 @@
-const fetch = require('node-fetch');
+const axios = require('axios');
 const BigNumber = require('bignumber.js');
+const NodeCache = require('node-cache');
 
 // Constants
 const API_BASE_URL = process.env.API_PROVIDER || "https://api.multiversx.com";
-const tokenDecimalsCache = {}; // In-memory cache for token decimals
+const tokenCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 }); // Cache for 1 hour
 
 /**
  * Fetch token decimals
@@ -12,29 +13,25 @@ const tokenDecimalsCache = {}; // In-memory cache for token decimals
  */
 const getTokenDecimals = async (tokenTicker) => {
     try {
+        if (!tokenTicker) throw new Error("Token ticker is required");
+
         // Check if decimals are cached
-        if (tokenDecimalsCache[tokenTicker]) {
-            return tokenDecimalsCache[tokenTicker];
+        const cachedDecimals = tokenCache.get(tokenTicker);
+        if (cachedDecimals) {
+            return cachedDecimals;
         }
 
         const apiUrl = `${API_BASE_URL}/tokens/${tokenTicker}`;
-        const response = await fetch(apiUrl);
+        const response = await axios.get(apiUrl);
 
-        if (!response.ok) {
-            throw new Error(`Failed to fetch token info for ${tokenTicker}: ${response.statusText}`);
-        }
-
-        const tokenInfo = await response.json();
-
-        // Validate tokenInfo structure
-        if (!tokenInfo || typeof tokenInfo.decimals !== "number") {
+        if (!response.data || typeof response.data.decimals !== "number") {
             throw new Error(`Invalid token data received for ${tokenTicker}`);
         }
 
-        const decimals = tokenInfo.decimals;
+        const decimals = response.data.decimals;
 
         // Cache the decimals
-        tokenDecimalsCache[tokenTicker] = decimals;
+        tokenCache.set(tokenTicker, decimals);
 
         return decimals;
     } catch (error) {
