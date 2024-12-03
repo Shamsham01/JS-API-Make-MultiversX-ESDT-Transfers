@@ -1,20 +1,21 @@
 const express = require('express');
+const Joi = require('joi');
 const { getTokenDecimals, convertAmountToBlockchainValue } = require('./utils/tokens');
 const { isWhitelisted } = require('./utils/whitelist');
 const { UserSigner } = require('@multiversx/sdk-wallet');
-const { Address, TransactionPayload, TokenTransfer, TransactionBuilder } = require('@multiversx/sdk-core');
+const { Address, TransactionPayload, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, TransactionWatcher } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 
 const router = express.Router();
 
 // Constants
-const API_BASE_URL = "https://api.multiversx.com";
+const API_BASE_URL = process.env.API_BASE_URL || "https://api.multiversx.com";
 const CHAIN_ID = process.env.CHAIN_ID || "1"; // Default to Mainnet if not specified
-const USAGE_FEE = 100; // Fee in REWARD tokens
-const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
-const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
-const DEFAULT_GAS_LIMIT = 500_000; // Gas limit for transactions
-const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: "MultiversX Transfers API" }); // Updated client name
+const USAGE_FEE = parseInt(process.env.USAGE_FEE || "100");
+const REWARD_TOKEN = process.env.REWARD_TOKEN || "REWARD-cf6eac";
+const TREASURY_WALLET = process.env.TREASURY_WALLET || "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn";
+const DEFAULT_GAS_LIMIT = 500_000;
+const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: "MultiversX Transfers API" });
 
 // Middleware to handle the usage fee
 const handleUsageFee = async (req, res, next) => {
