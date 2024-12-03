@@ -1,5 +1,6 @@
 const express = require('express');
 const bodyParser = require('body-parser');
+const cors = require('cors');
 const adminRoutes = require('./admin');
 const transfersRoutes = require('./transfers');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
@@ -21,8 +22,9 @@ app.use((req, res, next) => {
     next();
 });
 
-// Middleware to parse JSON-encoded request bodies
-app.use(bodyParser.json());
+// Middleware setup
+app.use(cors()); // Enable CORS for all routes
+app.use(bodyParser.json()); // Parse JSON-encoded request bodies
 
 // Health Check Endpoint
 app.get('/health', (req, res) => {
@@ -38,15 +40,10 @@ app.get('/health', (req, res) => {
 app.use('/admin', adminRoutes);
 app.use('/transfers', transfersRoutes);
 
-// Debugging: Log route registrations
-console.log("Routes registered:");
-console.log("Admin Routes:", adminRoutes);
-console.log("Transfer Routes:", transfersRoutes);
-
-// Error Handling Middleware (Optional but recommended)
+// Error Handling Middleware
 app.use((err, req, res, next) => {
     console.error('Unhandled error:', err.stack);
-    res.status(500).json({ error: "An unexpected error occurred." });
+    res.status(500).json({ error: "An unexpected error occurred.", details: err.message });
 });
 
 // Start the server
