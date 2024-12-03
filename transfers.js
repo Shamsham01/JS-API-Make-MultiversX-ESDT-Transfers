@@ -36,20 +36,27 @@ const handleUsageFee = async (req, res, next) => {
 
         const tokenTransfer = TokenTransfer.fungibleFromAmount(REWARD_TOKEN, amount, decimals);
 
-        const tx = new TransactionBuilder()
-            .setSender(signer.getAddress())
-            .setReceiver(new Address(TREASURY_WALLET))
-            .setGasLimit(DEFAULT_GAS_LIMIT)
-            .setData(TransactionPayload.esdtTransfer(tokenTransfer))
-            .setChainID(CHAIN_ID)
-            .build();
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
+        const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = transferFactory.createTransactionForESDTTokenTransfer({
+            sender: signer.getAddress(),
+            receiver: new Address(TREASURY_WALLET),
+            tokenTransfers: [tokenTransfer],
+            gasLimit: BigInt(DEFAULT_GAS_LIMIT),
+        });
+        console.log(`Prepared usage fee transaction: ${JSON.stringify(tx)}`);
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        const status = await provider.getTransactionStatus(txHash.toString());
+
+        // Watch transaction status
+        const watcher = new TransactionWatcher(provider);
+        const status = await watcher.awaitCompleted(txHash.toString());
+        console.log(`Usage fee transaction status: ${status.isSuccessful() ? 'success' : 'fail'}`);
 
         if (status.isSuccessful()) {
-            req.usageFeeHash = txHash.toString();
+            req.usageFeeHash = txHash.toString(); // Pass the transaction hash to the next middleware
             next();
         } else {
             throw new Error('Usage fee transaction failed. Ensure sufficient REWARD tokens are available.');
@@ -61,17 +68,26 @@ const handleUsageFee = async (req, res, next) => {
 };
 
 // EGLD Transfer
+// Define Joi schema for EGLD transfer
+const egldTransferSchema = Joi.object({
+    recipient: Joi.string().required().label('Recipient Address'),
+    amount: Joi.number().positive().required().label('Transfer Amount'),
+    walletPem: Joi.string().required().label('Wallet PEM Content'),
+});
+
 router.post('/egldTransfer', handleUsageFee, async (req, res) => {
     try {
-        const { recipient, amount } = req.body;
-        const pemContent = req.body.walletPem;
-
-        if (!recipient || !amount) {
-            return res.status(400).json({ error: 'Recipient and amount are required for EGLD transfer.' });
+        // Validate the request body using Joi
+        const { error } = egldTransferSchema.validate(req.body);
+        if (error) {
+            console.error('Validation error in egldTransfer:', error.details[0].message);
+            return res.status(400).json({ error: error.details[0].message });
         }
 
-        // Send EGLD Transaction
-        const result = await transactions.sendEgld(pemContent, recipient, amount);
+        const { recipient, amount, walletPem } = req.body;
+
+        // Perform the EGLD transfer
+        const result = await transactions.sendEgld(walletPem, recipient, amount);
 
         res.json({
             message: "EGLD transfer executed successfully.",
@@ -84,18 +100,29 @@ router.post('/egldTransfer', handleUsageFee, async (req, res) => {
     }
 });
 
+
 // ESDT Transfer
+// Define Joi schema for ESDT transfer
+const esdtTransferSchema = Joi.object({
+    recipient: Joi.string().required().label('Recipient Address'),
+    amount: Joi.number().positive().required().label('Transfer Amount'),
+    tokenTicker: Joi.string().required().label('Token Ticker'),
+    walletPem: Joi.string().required().label('Wallet PEM Content'),
+});
+
 router.post('/esdtTransfer', handleUsageFee, async (req, res) => {
     try {
-        const { recipient, amount, tokenTicker } = req.body;
-        const pemContent = req.body.walletPem;
-
-        if (!recipient || !amount || !tokenTicker) {
-            return res.status(400).json({ error: 'Recipient, amount, and tokenTicker are required for ESDT transfer.' });
+        // Validate the request body
+        const { error } = esdtTransferSchema.validate(req.body);
+        if (error) {
+            console.error('Validation error in esdtTransfer:', error.details[0].message);
+            return res.status(400).json({ error: error.details[0].message });
         }
 
-        // Send ESDT Transaction
-        const result = await transactions.sendEsdtToken(pemContent, recipient, amount, tokenTicker);
+        const { recipient, amount, tokenTicker, walletPem } = req.body;
+
+        // Perform the ESDT transfer
+        const result = await transactions.sendEsdtToken(walletPem, recipient, amount, tokenTicker);
 
         res.json({
             message: "ESDT transfer executed successfully.",
@@ -108,20 +135,29 @@ router.post('/esdtTransfer', handleUsageFee, async (req, res) => {
     }
 });
 
+
 // NFT Transfer
+// Define Joi schema for NFT transfer
+const nftTransferSchema = Joi.object({
+    recipient: Joi.string().required().label('Recipient Address'),
+    tokenIdentifier: Joi.string().required().label('Token Identifier'),
+    tokenNonce: Joi.number().integer().min(0).required().label('Token Nonce'),
+    walletPem: Joi.string().required().label('Wallet PEM Content'),
+});
+
 router.post('/nftTransfer', handleUsageFee, async (req, res) => {
     try {
-        const { recipient, tokenIdentifier, tokenNonce } = req.body;
-        const pemContent = req.body.walletPem;
-
-        if (!recipient || !tokenIdentifier || tokenNonce === undefined) {
-            return res.status(400).json({
-                error: 'Recipient, tokenIdentifier, and tokenNonce are required for NFT transfer.',
-            });
+        // Validate the request body
+        const { error } = nftTransferSchema.validate(req.body);
+        if (error) {
+            console.error('Validation error in nftTransfer:', error.details[0].message);
+            return res.status(400).json({ error: error.details[0].message });
         }
 
-        // Send NFT Transaction
-        const result = await transactions.sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce);
+        const { recipient, tokenIdentifier, tokenNonce, walletPem } = req.body;
+
+        // Perform the NFT transfer
+        const result = await transactions.sendNftToken(walletPem, recipient, tokenIdentifier, tokenNonce);
 
         res.json({
             message: "NFT transfer executed successfully.",
@@ -135,19 +171,28 @@ router.post('/nftTransfer', handleUsageFee, async (req, res) => {
 });
 
 // SFT Transfer
+// Define Joi schema for SFT transfer
+const sftTransferSchema = Joi.object({
+    recipient: Joi.string().required().label('Recipient Address'),
+    amount: Joi.number().positive().required().label('Transfer Amount'),
+    tokenTicker: Joi.string().required().label('Token Ticker'),
+    tokenNonce: Joi.number().integer().min(0).required().label('Token Nonce'),
+    walletPem: Joi.string().required().label('Wallet PEM Content'),
+});
+
 router.post('/sftTransfer', handleUsageFee, async (req, res) => {
     try {
-        const { recipient, amount, tokenTicker, tokenNonce } = req.body;
-        const pemContent = req.body.walletPem;
-
-        if (!recipient || !amount || !tokenTicker || tokenNonce === undefined) {
-            return res.status(400).json({
-                error: 'Recipient, amount, tokenTicker, and tokenNonce are required for SFT transfer.',
-            });
+        // Validate the request body
+        const { error } = sftTransferSchema.validate(req.body);
+        if (error) {
+            console.error('Validation error in sftTransfer:', error.details[0].message);
+            return res.status(400).json({ error: error.details[0].message });
         }
 
-        // Send SFT Transaction
-        const result = await transactions.sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
+        const { recipient, amount, tokenTicker, tokenNonce, walletPem } = req.body;
+
+        // Perform the SFT transfer
+        const result = await transactions.sendSftToken(walletPem, recipient, amount, tokenTicker, tokenNonce);
 
         res.json({
             message: "SFT transfer executed successfully.",
@@ -161,19 +206,28 @@ router.post('/sftTransfer', handleUsageFee, async (req, res) => {
 });
 
 // Free NFT Mint Airdrop
+// Define Joi schema for Free NFT Mint Airdrop
+const freeNftMintAirdropSchema = Joi.object({
+    scAddress: Joi.string().required().label('Smart Contract Address'),
+    endpoint: Joi.string().required().label('Smart Contract Endpoint'),
+    receiver: Joi.string().required().label('Receiver Address'),
+    qty: Joi.number().integer().positive().required().label('Quantity'),
+    walletPem: Joi.string().required().label('Wallet PEM Content'),
+});
+
 router.post('/freeNftMintAirdrop', handleUsageFee, async (req, res) => {
     try {
-        const { scAddress, endpoint, receiver, qty } = req.body;
-        const pemContent = req.body.walletPem;
-
-        if (!scAddress || !endpoint || !receiver || qty === undefined) {
-            return res.status(400).json({
-                error: 'scAddress, endpoint, receiver, and qty are required for the NFT mint airdrop.',
-            });
+        // Validate the request body
+        const { error } = freeNftMintAirdropSchema.validate(req.body);
+        if (error) {
+            console.error('Validation error in freeNftMintAirdrop:', error.details[0].message);
+            return res.status(400).json({ error: error.details[0].message });
         }
 
-        // Execute Free NFT Mint Airdrop
-        const result = await transactions.executeFreeNftMintAirdrop(pemContent, scAddress, endpoint, receiver, qty);
+        const { scAddress, endpoint, receiver, qty, walletPem } = req.body;
+
+        // Perform the Free NFT Mint Airdrop
+        const result = await transactions.executeFreeNftMintAirdrop(walletPem, scAddress, endpoint, receiver, qty);
 
         res.json({
             message: "Free NFT mint airdrop executed successfully.",
@@ -186,27 +240,36 @@ router.post('/freeNftMintAirdrop', handleUsageFee, async (req, res) => {
     }
 });
 
+
 // ESDT Airdrop to NFT Owners
+// Define Joi schema for Distribute Rewards
+const distributeRewardsSchema = Joi.object({
+    uniqueOwnerStats: Joi.array().items(
+        Joi.object({
+            owner: Joi.string().required().label('Owner Address'),
+            tokensCount: Joi.number().integer().positive().required().label('Tokens Count'),
+        })
+    ).required().label('Unique Owner Stats'),
+    tokenTicker: Joi.string().required().label('Token Ticker'),
+    baseAmount: Joi.number().positive().required().label('Base Amount'),
+    multiply: Joi.string().valid('yes', 'no').optional().label('Multiply Rewards'),
+    walletPem: Joi.string().required().label('Wallet PEM Content'),
+});
+
 router.post('/distributeRewardsToNftOwners', handleUsageFee, async (req, res) => {
     try {
-        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
-        const pemContent = req.body.walletPem;
-
-        // Validation
-        if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
-            return res.status(400).json({
-                error: 'Invalid uniqueOwnerStats provided. It must be an array.',
-            });
-        }
-        if (!tokenTicker || !baseAmount) {
-            return res.status(400).json({
-                error: 'Token ticker and base amount are required.',
-            });
+        // Validate the request body
+        const { error } = distributeRewardsSchema.validate(req.body);
+        if (error) {
+            console.error('Validation error in distributeRewardsToNftOwners:', error.details[0].message);
+            return res.status(400).json({ error: error.details[0].message });
         }
 
-        // Execute rewards distribution
+        const { uniqueOwnerStats, tokenTicker, baseAmount, multiply, walletPem } = req.body;
+
+        // Perform rewards distribution
         const results = await transactions.distributeRewardsToNftOwners(
-            pemContent,
+            walletPem,
             uniqueOwnerStats,
             tokenTicker,
             baseAmount,
