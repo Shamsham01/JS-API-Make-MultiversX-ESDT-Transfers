@@ -42,7 +42,7 @@ const saveFileData = async (filePath, data) => {
 };
 
 // Schema Validators
-const walletAddressSchema = Joi.string().pattern(/^erd[a-z0-9]{62}$/).required();
+const walletAddressSchema = Joi.string().pattern(/^erd[a-z0-9]{59}$/).required(); // Updated regex
 const whitelistEntrySchema = Joi.object({
     walletAddress: walletAddressSchema,
     label: Joi.string().min(3).required(),
