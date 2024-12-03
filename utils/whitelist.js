@@ -42,12 +42,21 @@ const saveFileData = async (filePath, data) => {
 };
 
 // Schema Validators
-const walletAddressSchema = Joi.string().pattern(/^erd[a-z0-9]{58}$/).required();
-const whitelistEntrySchema = Joi.object({
-    walletAddress: walletAddressSchema,
-    label: Joi.string().min(3).required(),
-    whitelistStart: Joi.date().iso().required(),
-});
+const walletAddressSchema = Joi.string().pattern(/^erd[a-z0-9]{62}$/).required();
+
+const isWhitelisted = async (walletAddress) => {
+    const { error } = walletAddressSchema.validate(walletAddress);
+    if (error) throw new Error(error.details[0].message);
+
+    try {
+        const whitelist = await loadWhitelist();
+        return whitelist.some(entry => entry.walletAddress === walletAddress);
+    } catch (error) {
+        console.error('Error checking if wallet is whitelisted:', error.message);
+        return false;
+    }
+};
+
 
 // Load whitelist
 const loadWhitelist = async () => {
