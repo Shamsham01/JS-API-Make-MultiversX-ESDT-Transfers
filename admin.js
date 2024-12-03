@@ -1,5 +1,5 @@
 const express = require('express');
-const fetch = require('node-fetch');
+const axios = require('axios'); // Replace node-fetch with axios
 const Joi = require('joi');
 const { loadWhitelist, saveWhitelist, loadUsers, saveUsers, logUserActivity } = require('./utils/whitelist');
 const { UserSigner } = require('@multiversx/sdk-wallet');
@@ -26,21 +26,18 @@ const checkAdminToken = (req, res, next) => {
 const sendWebhookUpdate = async (type, payload, retries = 3) => {
     for (let i = 0; i < retries; i++) {
         try {
-            const response = await fetch(WEBHOOK_WHITELIST_URL, {
-                method: 'POST',
+            const response = await axios.post(WEBHOOK_WHITELIST_URL, {
+                type,
+                payload,
+                timestamp: new Date().toISOString(),
+            }, {
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type, payload, timestamp: new Date().toISOString() }),
             });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.message || 'Failed to send webhook');
-            }
 
             console.log(`Webhook update sent successfully: ${type}`);
             return;
         } catch (error) {
-            console.error(`Retrying webhook (${i + 1}/${retries}):`, error.message);
+            console.error(`Retrying webhook (${i + 1}/${retries}):`, error.response?.data?.message || error.message);
             if (i === retries - 1) throw error;
         }
     }
