@@ -9,32 +9,49 @@ const app = express();
 
 // Constants
 const PORT = process.env.PORT || 10000;
-const API_BASE_URL = "https://api.multiversx.com"; // Replace if you're using a custom provider
-const CLIENT_NAME = "MultiversX Transfers API for Make.com Custom Apps";
+const API_PROVIDER_URL = process.env.API_PROVIDER || "https://api.multiversx.com";
+const APP_CLIENT_NAME = "MultiversX Transfers API for Make.com Custom Apps";
 
-// Initialize SDK provider
-const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: CLIENT_NAME });
+// Initialize MultiversX Provider
+const provider = new ProxyNetworkProvider(API_PROVIDER_URL, { clientName: APP_CLIENT_NAME });
 
-// Middleware
-app.use(bodyParser.json()); // Parse JSON-encoded bodies
+// Middleware to add the provider to request objects
+app.use((req, res, next) => {
+    req.provider = provider;
+    next();
+});
 
-// Routes
+// Middleware to parse JSON-encoded request bodies
+app.use(bodyParser.json());
+
+// Health Check Endpoint
+app.get('/health', (req, res) => {
+    res.json({
+        status: "API is live",
+        clientName: APP_CLIENT_NAME,
+        provider: API_PROVIDER_URL,
+        timestamp: new Date().toISOString(),
+    });
+});
+
+// Route Initialization
 app.use('/admin', adminRoutes);
 app.use('/transfers', transfersRoutes);
 
-// Test Endpoint for SDK Provider
-app.get('/health', async (req, res) => {
-    try {
-        const networkStatus = await provider.getNetworkStatus();
-        res.json({ status: "API is healthy", networkStatus });
-    } catch (error) {
-        console.error("Error fetching network status:", error.message);
-        res.status(500).json({ error: "Unable to fetch network status" });
-    }
+// Debugging: Log route registrations
+console.log("Routes registered:");
+console.log("Admin Routes:", adminRoutes);
+console.log("Transfer Routes:", transfersRoutes);
+
+// Error Handling Middleware (Optional but recommended)
+app.use((err, req, res, next) => {
+    console.error('Unhandled error:', err.stack);
+    res.status(500).json({ error: "An unexpected error occurred." });
 });
 
 // Start the server
 app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
-    console.log(`Client Name: ${CLIENT_NAME}`);
+    console.log(`Using MultiversX Provider: ${API_PROVIDER_URL}`);
+    console.log(`Client Name for SDK: ${APP_CLIENT_NAME}`);
 });
