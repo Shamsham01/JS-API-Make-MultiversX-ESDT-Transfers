@@ -1,57 +1,40 @@
 const express = require('express');
-const cors = require('cors'); // Enable CORS for external requests
+const bodyParser = require('body-parser');
 const adminRoutes = require('./admin');
 const transfersRoutes = require('./transfers');
-const { logUserActivity } = require('./utils/whitelist');
-const { UserSigner } = require('@multiversx/sdk-wallet');
+const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 
 // Initialize the Express application
 const app = express();
 
 // Constants
 const PORT = process.env.PORT || 10000;
+const API_BASE_URL = "https://api.multiversx.com"; // Replace if you're using a custom provider
+const CLIENT_NAME = "MultiversX Transfers API for Make.com Custom Apps";
+
+// Initialize SDK provider
+const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: CLIENT_NAME });
 
 // Middleware
-app.use(cors()); // Enable CORS
-app.use(express.json()); // Parse JSON-encoded bodies
-
-// Health Check Endpoint
-app.get('/health', (req, res) => {
-    res.json({ status: 'healthy', timestamp: new Date().toISOString() });
-});
+app.use(bodyParser.json()); // Parse JSON-encoded bodies
 
 // Routes
 app.use('/admin', adminRoutes);
 app.use('/transfers', transfersRoutes);
 
-// Authorization Endpoint
-app.post('/authorize', (req, res) => {
+// Test Endpoint for SDK Provider
+app.get('/health', async (req, res) => {
     try {
-        const pemContent = req.body.walletPem;
-
-        if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
-            throw new Error('Invalid PEM content');
-        }
-
-        // Derive wallet address from PEM content
-        const signer = UserSigner.fromPem(pemContent);
-        const walletAddress = signer.getAddress().toString();
-
-        // Log user activity in `users.json`
-        const logResult = logUserActivity(walletAddress);
-
-        res.json({
-            message: 'Authorization successful',
-            walletAddress: walletAddress,
-            logResult,
-        });
+        const networkStatus = await provider.getNetworkStatus();
+        res.json({ status: "API is healthy", networkStatus });
     } catch (error) {
-        console.error('Error in authorization:', error.message);
-        res.status(400).json({ error: error.message });
+        console.error("Error fetching network status:", error.message);
+        res.status(500).json({ error: "Unable to fetch network status" });
     }
 });
 
 // Start the server
 app.listen(PORT, () => {
-    console.log(`[INFO] Server is running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
+    console.log(`Client Name: ${CLIENT_NAME}`);
 });
