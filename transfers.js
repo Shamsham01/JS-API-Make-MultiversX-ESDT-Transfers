@@ -1,9 +1,8 @@
 const express = require('express');
-const transactions = require('./utils/transactions');
 const { getTokenDecimals, convertAmountToBlockchainValue } = require('./utils/tokens');
 const { isWhitelisted } = require('./utils/whitelist');
 const { UserSigner } = require('@multiversx/sdk-wallet');
-const { Address, TransactionPayload, TokenTransfer } = require('@multiversx/sdk-core');
+const { Address, TransactionPayload, TokenTransfer, TransactionBuilder } = require('@multiversx/sdk-core');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 
 const router = express.Router();
@@ -36,7 +35,7 @@ const handleUsageFee = async (req, res, next) => {
 
         const tokenTransfer = TokenTransfer.fungibleFromAmount(REWARD_TOKEN, amount, decimals);
 
-        const tx = new transactions.TransactionBuilder()
+        const tx = new TransactionBuilder()
             .setSender(signer.getAddress())
             .setReceiver(new Address(TREASURY_WALLET))
             .setGasLimit(DEFAULT_GAS_LIMIT)
@@ -46,9 +45,9 @@ const handleUsageFee = async (req, res, next) => {
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        const status = await transactions.watchTransactionStatus(txHash.toString());
+        const status = await provider.waitForTx(txHash);
 
-        if (status.status !== "success") {
+        if (!status.isSuccessful()) {
             throw new Error('Usage fee transaction failed. Ensure sufficient REWARD tokens are available.');
         }
 
