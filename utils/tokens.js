@@ -1,15 +1,14 @@
-const { ApiNetworkProvider } = require('@multiversx/sdk-network-providers');
+const fetch = require('node-fetch');
 const BigNumber = require('bignumber.js');
 
 // Constants
 const API_BASE_URL = "https://api.multiversx.com";
-const provider = new ApiNetworkProvider(API_BASE_URL); // Replacing manual fetch calls with SDK provider
 const tokenDecimalsCache = {}; // In-memory cache for token decimals
 
 /**
  * Fetch token decimals
- * @param {string} tokenTicker - The token identifier (e.g., "REWARD-cf6eac")
- * @returns {Promise<number>} - Token decimals
+ * @param {string} tokenTicker - The token ticker (e.g., "REWARD-cf6eac")
+ * @returns {number} - The number of decimals for the token
  */
 const getTokenDecimals = async (tokenTicker) => {
     try {
@@ -18,9 +17,21 @@ const getTokenDecimals = async (tokenTicker) => {
             return tokenDecimalsCache[tokenTicker];
         }
 
-        // Fetch token information using MultiversX SDK
-        const tokenInfo = await provider.getToken(tokenTicker);
-        const decimals = tokenInfo.decimals || 0;
+        const apiUrl = `${API_BASE_URL}/tokens/${tokenTicker}`;
+        const response = await fetch(apiUrl);
+
+        if (!response.ok) {
+            throw new Error(`Failed to fetch token info for ${tokenTicker}: ${response.statusText}`);
+        }
+
+        const tokenInfo = await response.json();
+
+        // Validate tokenInfo structure
+        if (!tokenInfo || typeof tokenInfo.decimals !== "number") {
+            throw new Error(`Invalid token data received for ${tokenTicker}`);
+        }
+
+        const decimals = tokenInfo.decimals;
 
         // Cache the decimals
         tokenDecimalsCache[tokenTicker] = decimals;
@@ -34,9 +45,9 @@ const getTokenDecimals = async (tokenTicker) => {
 
 /**
  * Convert human-readable amount to blockchain value
- * @param {number|string} amount - The human-readable amount
+ * @param {string|number} amount - The human-readable amount
  * @param {number} decimals - The number of decimals for the token
- * @returns {string} - Blockchain value as a string
+ * @returns {string} - The blockchain value as a string
  */
 const convertAmountToBlockchainValue = (amount, decimals) => {
     try {
@@ -52,7 +63,7 @@ const convertAmountToBlockchainValue = (amount, decimals) => {
  * Convert blockchain value to human-readable amount
  * @param {string|number} value - The blockchain value
  * @param {number} decimals - The number of decimals for the token
- * @returns {string} - Human-readable amount
+ * @returns {string} - The human-readable amount as a string
  */
 const convertBlockchainValueToAmount = (value, decimals) => {
     try {
