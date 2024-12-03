@@ -142,7 +142,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 
         // Create token transfer object
         const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, adjustedAmount, decimals);
-        console.log(`Token transfer object: ${JSON.stringify(tokenTransfer)}`);
+        console.log(`Token transfer object: ${stringifyWithBigInt(tokenTransfer)}`);
 
         // Configure transaction factory
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
@@ -154,7 +154,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
             receiver: receiverAddress,
             tokenTransfers: [tokenTransfer],
         });
-        console.log(`Prepared transaction: ${JSON.stringify(tx)}`);
+        console.log(`Prepared transaction: ${stringifyWithBigInt(tx)}`);
 
         // Sign and send the transaction
         await signer.sign(tx);
