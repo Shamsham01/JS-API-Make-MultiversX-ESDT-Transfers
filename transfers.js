@@ -1,3 +1,4 @@
+const transactions = require('./utils/transactions');
 const express = require('express');
 const Joi = require('joi');
 const { getTokenDecimals, convertAmountToBlockchainValue } = require('./utils/tokens');
