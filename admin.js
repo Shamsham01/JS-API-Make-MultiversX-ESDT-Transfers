@@ -2,6 +2,7 @@ const express = require('express');
 const fetch = require('node-fetch');
 const Joi = require('joi');
 const { loadWhitelist, saveWhitelist, loadUsers, saveUsers, logUserActivity } = require('./utils/whitelist');
+const { UserSigner } = require('@multiversx/sdk-wallet');
 
 const router = express.Router();
 const WEBHOOK_WHITELIST_URL = process.env.WEBHOOK_WHITELIST_URL || "";
@@ -47,13 +48,13 @@ const sendWebhookUpdate = async (type, payload, retries = 3) => {
 
 // Validation schemas
 const addToWhitelistSchema = Joi.object({
-    walletAddress: Joi.string().required(),
-    label: Joi.string().required(),
-    whitelistStart: Joi.date().required(),
+    walletAddress: Joi.string().pattern(/^erd[a-z0-9]{58}$/).required(),
+    label: Joi.string().min(3).required(),
+    whitelistStart: Joi.date().iso().required(),
 });
 
 const removeFromWhitelistSchema = Joi.object({
-    walletAddress: Joi.string().required(),
+    walletAddress: Joi.string().pattern(/^erd[a-z0-9]{58}$/).required(),
 });
 
 // Add wallet to whitelist
@@ -155,10 +156,10 @@ router.post('/authorize', async (req, res) => {
             return res.status(400).json({ error: 'Invalid wallet PEM provided.' });
         }
 
-        const walletAddress = 'derived_wallet_address_placeholder'; // Replace with actual derivation logic
-        const users = loadUsers();
+        const walletSigner = UserSigner.fromPem(walletPem);
+        const walletAddress = walletSigner.getAddress().toString();
 
-        // Add duplicate-friendly entry
+        const users = loadUsers();
         const newEntry = { walletAddress, timestamp: new Date().toISOString() };
         users.push(newEntry);
         saveUsers(users);
