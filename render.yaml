@@ -20,6 +20,8 @@ services:
         sync: true
       - key: LOG_LEVEL
         value: "info"
+      - key: WEBHOOK_WHITELIST_URL
+        value: ""
     autoDeploy: true
     region: frankfurt
     healthCheckPath: /health
