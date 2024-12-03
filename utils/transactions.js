@@ -138,11 +138,10 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 
         // Convert amount to blockchain value
         const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
-        console.log(`Adjusted amount for blockchain: ${adjustedAmount}, Type: ${typeof adjustedAmount}`);
+        console.log(`Adjusted amount for blockchain: ${adjustedAmount}`);
 
         // Create token transfer object
         const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, adjustedAmount, decimals);
-        console.log(`Token transfer object: ${stringifyWithBigInt(tokenTransfer)}, Type: ${typeof tokenTransfer}`);
 
         // Configure transaction factory
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
@@ -154,7 +153,8 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
             receiver: receiverAddress,
             tokenTransfers: [tokenTransfer],
         });
-        console.log(`Prepared transaction: ${stringifyWithBigInt(tx)}`);
+
+        console.log(`Transaction prepared successfully.`);
 
         // Sign and send the transaction
         await signer.sign(tx);
