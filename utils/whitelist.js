@@ -8,7 +8,12 @@ const usersFilePath = path.join(__dirname, 'users.json');
 // Helper: Ensure file exists and initialize if missing
 const ensureFileExists = (filePath, defaultContent = '[]') => {
     if (!fs.existsSync(filePath)) {
-        fs.writeFileSync(filePath, defaultContent);
+        try {
+            fs.writeFileSync(filePath, defaultContent);
+        } catch (error) {
+            console.error(`Error creating file ${filePath}:`, error.message);
+            throw error;
+        }
     }
 };
 
@@ -20,7 +25,7 @@ const loadFileData = (filePath) => {
         return JSON.parse(rawData);
     } catch (error) {
         console.error(`Error reading file ${filePath}:`, error.message);
-        return [];
+        throw new Error(`Could not load data from file: ${filePath}`);
     }
 };
 
@@ -30,15 +35,29 @@ const saveFileData = (filePath, data) => {
         fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
     } catch (error) {
         console.error(`Error writing to file ${filePath}:`, error.message);
-        throw error;
+        throw new Error(`Could not save data to file: ${filePath}`);
     }
 };
 
 // Load whitelist
-const loadWhitelist = () => loadFileData(whitelistFilePath);
+const loadWhitelist = () => {
+    try {
+        return loadFileData(whitelistFilePath);
+    } catch (error) {
+        console.error('Error loading whitelist:', error.message);
+        return [];
+    }
+};
 
 // Save whitelist
-const saveWhitelist = (whitelist) => saveFileData(whitelistFilePath, whitelist);
+const saveWhitelist = (whitelist) => {
+    try {
+        saveFileData(whitelistFilePath, whitelist);
+    } catch (error) {
+        console.error('Error saving whitelist:', error.message);
+        throw error;
+    }
+};
 
 // Add a wallet to the whitelist
 const addToWhitelist = (walletAddress, label, whitelistStart) => {
@@ -67,10 +86,24 @@ const removeFromWhitelist = (walletAddress) => {
 };
 
 // Load users
-const loadUsers = () => loadFileData(usersFilePath);
+const loadUsers = () => {
+    try {
+        return loadFileData(usersFilePath);
+    } catch (error) {
+        console.error('Error loading users:', error.message);
+        return [];
+    }
+};
 
 // Save users
-const saveUsers = (users) => saveFileData(usersFilePath, users);
+const saveUsers = (users) => {
+    try {
+        saveFileData(usersFilePath, users);
+    } catch (error) {
+        console.error('Error saving users:', error.message);
+        throw error;
+    }
+};
 
 // Log user activity
 const logUserActivity = (walletAddress) => {
@@ -87,8 +120,13 @@ const logUserActivity = (walletAddress) => {
 
 // Check if a wallet is whitelisted
 const isWhitelisted = (walletAddress) => {
-    const whitelist = loadWhitelist();
-    return whitelist.some(entry => entry.walletAddress === walletAddress);
+    try {
+        const whitelist = loadWhitelist();
+        return whitelist.some(entry => entry.walletAddress === walletAddress);
+    } catch (error) {
+        console.error('Error checking if wallet is whitelisted:', error.message);
+        return false;
+    }
 };
 
 module.exports = {
