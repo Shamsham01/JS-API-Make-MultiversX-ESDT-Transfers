@@ -9,7 +9,7 @@ const CHAIN_ID = process.env.CHAIN_ID || "1";
 const DEFAULT_GAS_LIMIT = 500_000; // Default gas limit for basic transactions
 const BATCH_SIZE = 4; // Number of transactions per batch
 const BATCH_DELAY_MS = 1000; // Delay between batches in milliseconds
-const provider = new ProxyNetworkProvider(`${API_BASE_URL}`, { clientName: "sdk-js-v13" });
+const provider = new ProxyNetworkProvider(`${API_BASE_URL}`, { clientName: "MultiversX Transfers API for Make.com" });
 const NFT_GAS_LIMIT = 15_000_000; // Default gas for NFT transfers
 const SFT_GAS_LIMIT = 1_000_000; // Default gas for SFT transfers
 
@@ -86,7 +86,7 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
     for (let i = 0; i < uniqueOwnerStats.length; i += BATCH_SIZE) {
         const batch = uniqueOwnerStats.slice(i, i + BATCH_SIZE);
 
-        const batchPromises = batch.map(async (owner, index) => {
+        const batchPromises = batch.map(async (owner) => {
             const amount = multiply === "yes" ? baseAmount * owner.tokensCount : baseAmount;
             const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
             const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, adjustedAmount, decimals);
@@ -107,11 +107,12 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
         const batchResults = await Promise.all(batchPromises);
         results.push(...batchResults);
 
-        // Delay between batches
+        // Delay between batches to avoid overwhelming the network
         if (i + BATCH_SIZE < uniqueOwnerStats.length) {
             await new Promise((resolve) => setTimeout(resolve, BATCH_DELAY_MS));
         }
     }
+
     return results;
 };
 
@@ -128,7 +129,7 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) 
     const tx = new TransactionBuilder()
         .setSender(senderAddress)
         .setReceiver(receiverAddress)
-        .setGasLimit(NFT_GAS_LIMIT)
+        .setGasLimit(NFT_GAS_LIMIT) // Use NFT-specific gas limit
         .setData(TransactionPayload.esdtNftTransfer(tokenTransfer))
         .setChainID(CHAIN_ID)
         .build();
@@ -189,11 +190,11 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
 
 // Export Updated Functions
 module.exports = {
-    sendEgld,
-    sendEsdtToken,
-    distributeRewardsToNftOwners,
-    sendNftToken,
-    sendSftToken,
-    executeFreeNftMintAirdrop,
-    watchTransactionStatus,
+    sendEgld,                         // Send EGLD
+    sendEsdtToken,                    // Send ESDT Tokens
+    distributeRewardsToNftOwners,     // Distribute rewards in batch
+    sendNftToken,                     // Transfer NFTs
+    sendSftToken,                     // Transfer SFTs
+    executeFreeNftMintAirdrop,        // Mint and airdrop free NFTs
+    watchTransactionStatus,           // Transaction status watcher
 };
