@@ -15,7 +15,7 @@ services:
         sync: true
       - key: CHAIN_ID
         value: "1"
-      - key: ADMIN_KEY
+      - key: ADMIN_TOKEN
         value: ""
         sync: true
       - key: LOG_LEVEL
