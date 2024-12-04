@@ -59,9 +59,9 @@ const handleUsageFee = async (req, res, next) => {
         const decimals = await getTokenDecimals("REWARD-cf6eac");
         console.log(`Decimals for REWARD token: ${decimals}`);
 
-        // Convert amount to string immediately for safe handling
+        // Convert amount to blockchain value (string)
         const adjustedAmount = convertAmountToBlockchainValue(amount.toString(), decimals);
-        console.log(`Adjusted usage fee amount: ${adjustedAmount}`); // Already a string
+        console.log(`Adjusted usage fee amount: ${adjustedAmount}`); // Confirm it's a string
 
         // Fetch the sender's current nonce
         const accountOnChain = await provider.getAccount(senderAddress);
@@ -71,21 +71,25 @@ const handleUsageFee = async (req, res, next) => {
         // Create token transfer for usage fee
         const tokenTransfer = TokenTransfer.fungibleFromAmount(
             "REWARD-cf6eac",
-            adjustedAmount.toString(),
+            adjustedAmount, // Already string
             decimals
         );
+
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
 
+        // Build the transaction
         const tx = transferFactory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: new Address(TREASURY_WALLET),
             tokenTransfers: [tokenTransfer],
-            nonce: senderNonce, // Explicitly set nonce
-            gasLimit: BigInt(50_000), // Ensure gas limit is a BigInt
+            nonce: senderNonce, // Ensure this is an integer
+            gasLimit: BigInt(50_000).toString(), // Convert BigInt to string
         });
 
-        console.log(`Prepared usage fee transaction.`);
+        console.log(`Prepared usage fee transaction:`, JSON.stringify(tx, (key, value) =>
+            typeof value === "bigint" ? value.toString() : value
+        ));
 
         // Sign and send the transaction
         await signer.sign(tx);
@@ -97,7 +101,7 @@ const handleUsageFee = async (req, res, next) => {
         console.log(`Usage fee transaction status: ${status.status}`);
 
         if (status.status === "success") {
-            req.nextNonce = senderNonce + 1; // Pass incremented nonce to the next middleware
+            req.nextNonce = senderNonce + 1; // Increment nonce for next transaction
             req.usageFeeHash = txHash.toString();
             next();
         } else {
@@ -105,12 +109,9 @@ const handleUsageFee = async (req, res, next) => {
         }
     } catch (error) {
         console.error("Error in handleUsageFee:", error.message);
-
-        // For debugging, include the full error
         if (error.response) {
             console.error("Response data:", error.response.data);
         }
-
         res.status(400).json({ error: error.message });
     }
 };
