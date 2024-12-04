@@ -6,6 +6,12 @@ const NodeCache = require('node-cache');
 const API_BASE_URL = process.env.API_PROVIDER || "https://api.multiversx.com";
 const tokenCache = new NodeCache({ stdTTL: 3600, checkperiod: 600 }); // Cache for 1 hour
 
+// Create an axios instance with a timeout of 10 seconds
+const axiosInstance = axios.create({
+    baseURL: API_BASE_URL,
+    timeout: 10000, // 10 seconds timeout
+});
+
 /**
  * Fetch token decimals
  * @param {string} tokenTicker - The token ticker (e.g., "REWARD-cf6eac")
@@ -21,8 +27,8 @@ const getTokenDecimals = async (tokenTicker) => {
             return cachedDecimals;
         }
 
-        const apiUrl = `${API_BASE_URL}/tokens/${tokenTicker}`;
-        const response = await axios.get(apiUrl);
+        const apiUrl = `/tokens/${tokenTicker}`;
+        const response = await axiosInstance.get(apiUrl);
 
         if (!response.data || typeof response.data.decimals !== "number") {
             throw new Error(`Invalid token data received for ${tokenTicker}`);
