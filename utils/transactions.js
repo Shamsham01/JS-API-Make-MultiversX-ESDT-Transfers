@@ -60,11 +60,11 @@ const handleUsageFee = async (req, res, next) => {
         console.log(`Decimals for REWARD token: ${decimals}`);
 
         const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
-        console.log(`Adjusted usage fee amount: ${adjustedAmount.toString()}`); // Ensure safe serialization
+        console.log(`Adjusted usage fee amount: ${adjustedAmount}`); // Already a string
 
         // Fetch the sender's current nonce
         const accountOnChain = await provider.getAccount(senderAddress);
-        let senderNonce = accountOnChain.nonce;
+        const senderNonce = accountOnChain.nonce;
         console.log(`Fetched sender's nonce: ${senderNonce}`);
 
         // Create token transfer for usage fee
@@ -80,14 +80,12 @@ const handleUsageFee = async (req, res, next) => {
             gasLimit: BigInt(50_000),
         });
 
-        console.log(`Prepared usage fee transaction: ${JSON.stringify(tx, (key, value) =>
-            typeof value === "bigint" ? value.toString() : value
-        )}`);
+        console.log(`Prepared usage fee transaction.`);
 
         // Sign and send the transaction
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        console.log(`Usage fee transaction sent. Hash: ${txHash.toString()}`);
+        console.log(`Usage fee transaction sent. Hash: ${txHash}`);
 
         // Watch transaction status
         const status = await watchTransactionStatus(txHash.toString());
