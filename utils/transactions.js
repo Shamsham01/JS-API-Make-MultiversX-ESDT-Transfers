@@ -10,6 +10,7 @@ const CHAIN_ID = process.env.CHAIN_ID || "1";
 const DEFAULT_GAS_LIMIT = 500_000;
 const BATCH_SIZE = 4;
 const BATCH_DELAY_MS = 1000;
+const REWARD_TOKEN = process.env.REWARD_TOKEN || "REWARD-cf6eac";
 
 // Create an axios instance with a timeout of 20 seconds
 const axiosInstance = axios.create({
