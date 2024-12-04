@@ -113,28 +113,17 @@ const esdtTransferSchema = Joi.object({
 
 router.post('/esdtTransfer', handleUsageFee, async (req, res) => {
     try {
-        // Validate the request body
-        const { error } = esdtTransferSchema.validate(req.body);
-        if (error) {
-            console.error('Validation error in esdtTransfer:', error.details[0].message);
-            return res.status(400).json({ error: error.details[0].message });
-        }
-
         const { recipient, amount, tokenTicker, walletPem } = req.body;
+        const nextNonce = req.nextNonce;
 
-        // Perform the ESDT transfer
-        const result = await transactions.sendEsdtToken(walletPem, recipient, amount, tokenTicker);
-
-        res.json({
-            message: "ESDT transfer executed successfully.",
-            usageFeeHash: req.usageFeeHash,
-            result,
-        });
+        const result = await transactions.sendEsdtToken(walletPem, recipient, amount, tokenTicker, nextNonce);
+        res.json({ message: "ESDT transfer executed successfully.", result });
     } catch (error) {
         console.error('Error executing ESDT transfer:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 
 // NFT Transfer
