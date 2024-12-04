@@ -2,6 +2,7 @@ const transactions = require('./utils/transactions');
 const express = require('express');
 const Joi = require('joi');
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
+const { getNonce, incrementNonce } = require('./utils/nonce');
 
 const router = express.Router();
 
