@@ -21,37 +21,58 @@ const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: "Multivers
 // Middleware to handle the usage fee
 const handleUsageFee = async (req, res, next) => {
     try {
-        const pemContent = req.body.walletPem;
-        const signer = UserSigner.fromPem(pemContent);
-        const walletAddress = signer.getAddress().toString();
+        const { walletPem } = req.body;
 
-        // Skip fee if user is whitelisted
-        if (await isWhitelisted(walletAddress)) {
-            console.log(`Wallet ${walletAddress} is whitelisted. Skipping usage fee.`);
-            next();
-            return;
-        }
+        console.log(`Processing usage fee for wallet PEM provided`);
 
-        const senderNonce = await provider.getNonce(walletAddress);
-        console.log(`Fetched sender's nonce for usage fee: ${senderNonce}`);
+        const signer = UserSigner.fromPem(walletPem);
+        const senderAddress = signer.getAddress();
+        console.log(`Sender Address: ${senderAddress.toString()}`);
 
-        const usageFeeResult = await transactions.sendEsdtToken(
-            pemContent,
-            process.env.TREASURY_WALLET,
-            100, // Usage fee amount
-            "REWARD-cf6eac", // Usage fee token
-            senderNonce
-        );
+        const amount = BigInt(100); // Usage fee amount (example: 100 REWARD tokens)
+        const decimals = await getTokenDecimals("REWARD-cf6eac");
+        console.log(`Decimals for REWARD token: ${decimals}`);
 
-        if (usageFeeResult.status === "success") {
-            console.log("Usage fee transaction successful.");
-            req.nextNonce = senderNonce + 1; // Pass incremented nonce for subsequent transactions
+        const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
+        console.log(`Adjusted usage fee amount: ${adjustedAmount}`);
+
+        // Fetch the nonce
+        const account = await provider.getAccount(senderAddress);
+        const senderNonce = account.nonce;
+        console.log(`Fetched sender's nonce: ${senderNonce}`);
+
+        // Create token transfer for usage fee
+        const tokenTransfer = TokenTransfer.fungibleFromAmount("REWARD-cf6eac", adjustedAmount, decimals);
+
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
+        const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = transferFactory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: new Address(TREASURY_WALLET),
+            tokenTransfers: [tokenTransfer],
+            gasLimit: BigInt(50_000), // Adjust gas limit for small transfers
+            nonce: senderNonce, // Explicitly set nonce
+        });
+        console.log(`Prepared usage fee transaction: ${JSON.stringify(tx)}`);
+
+        // Sign and send the transaction
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+        console.log(`Usage fee transaction sent. Hash: ${txHash.toString()}`);
+
+        // Watch transaction status
+        const status = await watchTransactionStatus(txHash.toString());
+        console.log(`Usage fee transaction status: ${status.status}`);
+
+        if (status.status === "success") {
+            req.usageFeeHash = txHash.toString(); // Pass the transaction hash to the next middleware
             next();
         } else {
             throw new Error("Usage fee transaction failed.");
         }
     } catch (error) {
-        console.error('Error processing usage fee:', error.message);
+        console.error("Error in handleUsageFee:", error.message);
         res.status(400).json({ error: error.message });
     }
 };
