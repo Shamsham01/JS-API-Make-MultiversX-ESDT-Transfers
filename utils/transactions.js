@@ -12,6 +12,11 @@ const BATCH_DELAY_MS = 1000;
 const provider = new ProxyNetworkProvider(`${API_BASE_URL}`, { clientName: "MultiversX Transfers API for Make.com" });
 const TREASURY_WALLET = process.env.TREASURY_WALLET || "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn";
 
+const safeStringify = (obj) => {
+    return JSON.stringify(obj, (key, value) =>
+        typeof value === "bigint" ? value.toString() : value
+    );
+};
 
 /**
  * Watch Transaction Status
@@ -42,28 +47,29 @@ const handleUsageFee = async (req, res, next) => {
         console.log(`Decimals for REWARD token: ${decimals}`);
 
         const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
-        console.log(`Adjusted usage fee amount: ${adjustedAmount}`);
-
-        // Create token transfer for usage fee
-        const tokenTransfer = TokenTransfer.fungibleFromAmount("REWARD-cf6eac", adjustedAmount, decimals);
-
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
-        const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
+        console.log(`Adjusted usage fee amount: ${adjustedAmount.toString()}`); // Ensure safe serialization
 
         // Fetch the sender's current nonce
         const accountOnChain = await provider.getAccount(senderAddress);
         let senderNonce = accountOnChain.nonce;
         console.log(`Fetched sender's nonce: ${senderNonce}`);
 
+        // Create token transfer for usage fee
+        const tokenTransfer = TokenTransfer.fungibleFromAmount("REWARD-cf6eac", adjustedAmount, decimals);
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
+        const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
+
         const tx = transferFactory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: new Address(TREASURY_WALLET),
             tokenTransfers: [tokenTransfer],
-            nonce: senderNonce, // Use fetched nonce
-            gasLimit: BigInt(50_000), // Adjust gas limit for small transfers
+            nonce: senderNonce, // Explicitly set nonce
+            gasLimit: BigInt(50_000),
         });
 
-        console.log(`Prepared usage fee transaction: ${JSON.stringify(tx)}`);
+        console.log(`Prepared usage fee transaction: ${JSON.stringify(tx, (key, value) =>
+            typeof value === "bigint" ? value.toString() : value
+        )}`);
 
         // Sign and send the transaction
         await signer.sign(tx);
@@ -75,9 +81,8 @@ const handleUsageFee = async (req, res, next) => {
         console.log(`Usage fee transaction status: ${status.status}`);
 
         if (status.status === "success") {
-            // Increment the nonce for the next transaction
-            req.nextNonce = senderNonce + 1; // Pass incremented nonce to next middleware
-            req.usageFeeHash = txHash.toString(); // Pass the transaction hash to the next middleware
+            req.nextNonce = senderNonce + 1; // Pass incremented nonce to the next middleware
+            req.usageFeeHash = txHash.toString();
             next();
         } else {
             throw new Error("Usage fee transaction failed.");
@@ -141,36 +146,32 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker, senderN
 
         console.log(`Sender Address: ${senderAddress.toString()}, Receiver Address: ${receiverAddress.toString()}`);
 
-        // Fetch token decimals
         const decimals = await getTokenDecimals(tokenTicker);
         console.log(`Decimals for token ${tokenTicker}: ${decimals}`);
 
-        // Convert amount to blockchain value
         const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
-        console.log(`Adjusted amount for blockchain: ${adjustedAmount}`);
+        console.log(`Adjusted amount for blockchain: ${adjustedAmount.toString()}`); // Ensure safe serialization
 
-        // Create token transfer object
         const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, adjustedAmount, decimals);
 
-        // Configure transaction factory
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Build transaction
         const tx = transferFactory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: receiverAddress,
             tokenTransfers: [tokenTransfer],
-            nonce: senderNonce, // Explicitly pass the sender's nonce
+            nonce: senderNonce, // Explicitly pass nonce
         });
-        console.log(`Prepared transaction: ${JSON.stringify(tx)}`);
 
-        // Sign and send the transaction
+        console.log(`Prepared transaction: ${JSON.stringify(tx, (key, value) =>
+            typeof value === "bigint" ? value.toString() : value
+        )}`);
+
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
         console.log(`Transaction sent. Hash: ${txHash.toString()}`);
 
-        // Watch transaction status
         const status = await watchTransactionStatus(txHash.toString());
         console.log(`Transaction status: ${status.status}`);
 
