@@ -91,7 +91,7 @@ router.post('/egldTransfer', handleUsageFee, async (req, res) => {
 
 
 // ESDT Transfer
-outer.post('/esdtTransfer', handleUsageFee, async (req, res) => {
+router.post('/esdtTransfer', handleUsageFee, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = req.body.walletPem;
@@ -117,6 +117,7 @@ outer.post('/esdtTransfer', handleUsageFee, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // NFT Transfer
 // Define Joi schema for NFT transfer
