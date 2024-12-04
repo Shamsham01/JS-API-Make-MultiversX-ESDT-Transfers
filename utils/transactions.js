@@ -45,7 +45,7 @@ const watchTransactionStatus = async (txHash) => {
     }
 };
 
-const handleUsageFee = async (req, res, next) => {
+cconst handleUsageFee = async (req, res, next) => {
     try {
         const { walletPem } = req.body;
 
@@ -59,49 +59,41 @@ const handleUsageFee = async (req, res, next) => {
         const decimals = await getTokenDecimals("REWARD-cf6eac");
         console.log(`Decimals for REWARD token: ${decimals}`);
 
-        // Convert amount to blockchain value (string)
-        const adjustedAmount = convertAmountToBlockchainValue(amount.toString(), decimals);
-        console.log(`Adjusted usage fee amount: ${adjustedAmount}`); // Confirm it's a string
+        const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
+        console.log(`Adjusted usage fee amount: ${adjustedAmount.toString()}`); // Log adjusted amount
 
         // Fetch the sender's current nonce
         const accountOnChain = await provider.getAccount(senderAddress);
-        const senderNonce = accountOnChain.nonce;
+        let senderNonce = accountOnChain.nonce;
         console.log(`Fetched sender's nonce: ${senderNonce}`);
 
         // Create token transfer for usage fee
-        const tokenTransfer = TokenTransfer.fungibleFromAmount(
-            "REWARD-cf6eac",
-            adjustedAmount, // Already string
-            decimals
-        );
-
+        const tokenTransfer = TokenTransfer.fungibleFromAmount("REWARD-cf6eac", adjustedAmount, decimals);
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Build the transaction
         const tx = transferFactory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: new Address(TREASURY_WALLET),
             tokenTransfers: [tokenTransfer],
-            nonce: senderNonce, // Ensure this is an integer
-            gasLimit: BigInt(50_000).toString(), // Convert BigInt to string
+            nonce: senderNonce, // Explicitly set nonce
+            gasLimit: BigInt(50_000),
         });
 
-        console.log(`Prepared usage fee transaction:`, JSON.stringify(tx, (key, value) =>
-            typeof value === "bigint" ? value.toString() : value
-        ));
+        // Log individual transaction properties instead of serializing the entire object
+        console.log(`Transaction prepared with nonce: ${tx.getNonce()}, gasLimit: ${tx.getGasLimit()}, receiver: ${tx.getReceiver()}`);
 
         // Sign and send the transaction
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
-        console.log(`Usage fee transaction sent. Hash: ${txHash}`);
+        console.log(`Usage fee transaction sent. Hash: ${txHash.toString()}`);
 
         // Watch transaction status
         const status = await watchTransactionStatus(txHash.toString());
         console.log(`Usage fee transaction status: ${status.status}`);
 
         if (status.status === "success") {
-            req.nextNonce = senderNonce + 1; // Increment nonce for next transaction
+            req.nextNonce = senderNonce + 1; // Pass incremented nonce to the next middleware
             req.usageFeeHash = txHash.toString();
             next();
         } else {
@@ -109,9 +101,6 @@ const handleUsageFee = async (req, res, next) => {
         }
     } catch (error) {
         console.error("Error in handleUsageFee:", error.message);
-        if (error.response) {
-            console.error("Response data:", error.response.data);
-        }
         res.status(400).json({ error: error.message });
     }
 };
