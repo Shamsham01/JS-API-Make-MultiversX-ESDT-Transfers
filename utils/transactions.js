@@ -50,12 +50,19 @@ const handleUsageFee = async (req, res, next) => {
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
 
+        // Fetch the sender's current nonce
+        const accountOnChain = await provider.getAccount(senderAddress);
+        let senderNonce = accountOnChain.nonce;
+        console.log(`Fetched sender's nonce: ${senderNonce}`);
+
         const tx = transferFactory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: new Address(TREASURY_WALLET),
             tokenTransfers: [tokenTransfer],
+            nonce: senderNonce, // Use fetched nonce
             gasLimit: BigInt(50_000), // Adjust gas limit for small transfers
         });
+
         console.log(`Prepared usage fee transaction: ${JSON.stringify(tx)}`);
 
         // Sign and send the transaction
@@ -68,6 +75,8 @@ const handleUsageFee = async (req, res, next) => {
         console.log(`Usage fee transaction status: ${status.status}`);
 
         if (status.status === "success") {
+            // Increment the nonce for the next transaction
+            req.nextNonce = senderNonce + 1; // Pass incremented nonce to next middleware
             req.usageFeeHash = txHash.toString(); // Pass the transaction hash to the next middleware
             next();
         } else {
@@ -122,7 +131,7 @@ const sendEgld = async (pemContent, recipient, amount) => {
 /**
  * Send ESDT Tokens
  */
-const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
+const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker, nextNonce) => {
     try {
         console.log(`Starting sendEsdtToken with recipient: ${recipient}, amount: ${amount}, token: ${tokenTicker}`);
 
@@ -143,10 +152,13 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         // Create token transfer object
         const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, adjustedAmount, decimals);
 
-        // Fetch sender's account nonce
-        const accountOnChain = await provider.getAccount(senderAddress);
-        const senderNonce = accountOnChain.nonce;
-        console.log(`Fetched sender's nonce: ${senderNonce}`);
+        // Fetch sender's account nonce if not provided
+        let senderNonce = nextNonce;
+        if (!nextNonce) {
+            const accountOnChain = await provider.getAccount(senderAddress);
+            senderNonce = accountOnChain.nonce;
+        }
+        console.log(`Using sender's nonce: ${senderNonce}`);
 
         // Configure transaction factory
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
@@ -160,7 +172,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
             nonce: senderNonce, // Explicitly set nonce
         });
 
-        console.log(`Transaction prepared successfully.`);
+        console.log(`Transaction prepared successfully with nonce ${senderNonce}.`);
 
         // Sign and send the transaction
         await signer.sign(tx);
@@ -177,6 +189,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         throw new Error(`Failed to send ESDT token: ${error.message}`);
     }
 };
+
 
 /**
  * Send NFT Transaction
