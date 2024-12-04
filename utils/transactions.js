@@ -419,5 +419,3 @@ module.exports = {
     executeFreeNftMintAirdrop,
     distributeRewardsToNftOwners,
 };
-
-};
