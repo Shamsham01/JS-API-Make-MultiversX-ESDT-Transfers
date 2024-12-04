@@ -60,7 +60,7 @@ const handleUsageFee = async (req, res, next) => {
         console.log(`Sender Address: ${senderAddress.toString()}`);
 
         const amount = BigInt(100); // Usage fee amount (example: 100 REWARD tokens)
-        const decimals = await getTokenDecimals("REWARD-cf6eac");
+        const decimals = await getTokenDecimals(REWARD_TOKEN);
         console.log(`Decimals for REWARD token: ${decimals}`);
 
         const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
@@ -68,11 +68,16 @@ const handleUsageFee = async (req, res, next) => {
 
         // Fetch the sender's current nonce
         const accountOnChain = await provider.getAccount(senderAddress);
-        let senderNonce = accountOnChain.nonce;
+        const senderNonce = accountOnChain.nonce;
         console.log(`Fetched sender's nonce: ${senderNonce}`);
 
+        // Sanity check to ensure `senderNonce` is used
+        if (senderNonce < 0) {
+            throw new Error("Invalid nonce fetched for the account.");
+        }
+
         // Create token transfer for usage fee
-        const tokenTransfer = TokenTransfer.fungibleFromAmount("REWARD-cf6eac", adjustedAmount, decimals);
+        const tokenTransfer = TokenTransfer.fungibleFromAmount(REWARD_TOKEN, adjustedAmount, decimals);
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
 
@@ -80,7 +85,7 @@ const handleUsageFee = async (req, res, next) => {
             sender: senderAddress,
             receiver: new Address(TREASURY_WALLET),
             tokenTransfers: [tokenTransfer],
-            nonce: senderNonce, // Use fetched nonce
+            nonce: senderNonce, // Explicitly use fetched nonce
             gasLimit: BigInt(50_000),
         });
 
@@ -96,7 +101,7 @@ const handleUsageFee = async (req, res, next) => {
         console.log(`Usage fee transaction status: ${status.status}`);
 
         if (status.status === "success") {
-            req.nextNonce = senderNonce + 1; // Increment the nonce for next use
+            req.nextNonce = senderNonce + 1; // Increment the nonce for the next transaction
             req.usageFeeHash = txHash.toString();
             next();
         } else {
@@ -107,7 +112,6 @@ const handleUsageFee = async (req, res, next) => {
         res.status(400).json({ error: error.message });
     }
 };
-
 
 /**
  * Send EGLD Transaction using the updated v13 SDK
