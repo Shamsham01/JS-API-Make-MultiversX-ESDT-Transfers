@@ -50,68 +50,51 @@ const watchTransactionStatus = async (txHash) => {
     }
 };
 
-const handleUsageFee = async (req, res, next, rewardToken = REWARD_TOKEN) => {
+const { getNonce, incrementNonce } = require('./utils/nonce');
+
+const handleUsageFee = async (req, res, next) => {
     try {
         const { walletPem } = req.body;
-
-        console.log(`Processing usage fee for wallet PEM provided`);
 
         const signer = UserSigner.fromPem(walletPem);
         const senderAddress = signer.getAddress();
         console.log(`Sender Address: ${senderAddress.toString()}`);
 
-        const amount = BigInt(100); // Usage fee amount
-        const decimals = await getTokenDecimals(rewardToken); // Use passed reward token
-        console.log(`Decimals for REWARD token: ${decimals}`);
+        const amount = BigInt(100); // Usage fee
+        const decimals = await getTokenDecimals(REWARD_TOKEN);
 
         const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
         console.log(`Adjusted usage fee amount: ${adjustedAmount.toString()}`);
-        
-        // Additional nonce and transaction logic here...
-    } catch (error) {
-        console.error("Error in handleUsageFee:", error.message);
-        res.status(400).json({ error: error.message });
-    }
-};
 
+        // Fetch and lock the nonce
+        const nonce = await getNonce(senderAddress);
+        console.log(`Fetched sender's nonce: ${nonce}`);
 
-/**
- * Send EGLD Transaction using the updated v13 SDK
- */
-const sendEgld = async (pemContent, recipient, amount) => {
-    try {
-        console.log(`Starting sendEgld with recipient: ${recipient}, amount: ${amount}`);
-        const signer = UserSigner.fromPem(pemContent);
-        const senderAddress = signer.getAddress();
-        const receiverAddress = new Address(recipient);
-
+        const tokenTransfer = TokenTransfer.fungibleFromAmount(REWARD_TOKEN, adjustedAmount, decimals);
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        const tx = transferFactory.createTransactionForNativeTokenTransfer({
+        const tx = transferFactory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
-            receiver: receiverAddress,
-            nativeAmount: BigInt(amount), // Ensure amount is in BigInt
+            receiver: new Address(TREASURY_WALLET),
+            tokenTransfers: [tokenTransfer],
+            nonce, // Use locked nonce
+            gasLimit: BigInt(50_000),
         });
-        console.log(`Prepared transaction for EGLD transfer: ${JSON.stringify(tx)}`);
 
-        // Sign and send the transaction
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
+        console.log(`Usage fee transaction sent. Hash: ${txHash.toString()}`);
 
-        console.log(`Transaction sent. Hash: ${txHash.toString()}`);
+        // Increment nonce after successful transaction
+        incrementNonce(senderAddress);
 
-        // Watch the transaction status
-        const watcher = new TransactionWatcher(provider);
-        const status = await watcher.awaitCompleted(txHash.toString());
-
-        console.log(`Transaction status: ${status.isSuccessful() ? 'success' : 'fail'}`);
-        return status.isSuccessful()
-            ? { status: "success", txHash: txHash.toString() }
-            : { status: "fail", txHash: txHash.toString() };
+        req.nextNonce = nonce + 1;
+        req.usageFeeHash = txHash.toString();
+        next();
     } catch (error) {
-        console.error('Error in sendEgld:', error.message);
-        throw new Error(`Failed to send EGLD transaction: ${error.message}`);
+        console.error("Error in handleUsageFee:", error.message);
+        res.status(400).json({ error: error.message });
     }
 };
 
