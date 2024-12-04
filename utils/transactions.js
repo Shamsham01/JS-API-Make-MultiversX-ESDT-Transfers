@@ -131,7 +131,7 @@ const sendEgld = async (pemContent, recipient, amount) => {
 /**
  * Send ESDT Tokens
  */
-const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker, nextNonce) => {
+const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker, senderNonce) => {
     try {
         console.log(`Starting sendEsdtToken with recipient: ${recipient}, amount: ${amount}, token: ${tokenTicker}`);
 
@@ -152,14 +152,6 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker, nextNon
         // Create token transfer object
         const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, adjustedAmount, decimals);
 
-        // Fetch sender's account nonce if not provided
-        let senderNonce = nextNonce;
-        if (!nextNonce) {
-            const accountOnChain = await provider.getAccount(senderAddress);
-            senderNonce = accountOnChain.nonce;
-        }
-        console.log(`Using sender's nonce: ${senderNonce}`);
-
         // Configure transaction factory
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
@@ -169,10 +161,9 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker, nextNon
             sender: senderAddress,
             receiver: receiverAddress,
             tokenTransfers: [tokenTransfer],
-            nonce: senderNonce, // Explicitly set nonce
+            nonce: senderNonce, // Explicitly pass the sender's nonce
         });
-
-        console.log(`Transaction prepared successfully with nonce ${senderNonce}.`);
+        console.log(`Prepared transaction: ${JSON.stringify(tx)}`);
 
         // Sign and send the transaction
         await signer.sign(tx);
@@ -189,7 +180,6 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker, nextNon
         throw new Error(`Failed to send ESDT token: ${error.message}`);
     }
 };
-
 
 /**
  * Send NFT Transaction
