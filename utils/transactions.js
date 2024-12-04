@@ -2,6 +2,7 @@ const { Address, TokenTransfer, TransferTransactionsFactory, TransactionsFactory
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
 const { getTokenDecimals, convertAmountToBlockchainValue } = require('./tokens');
+const axios = require('axios'); // Add this line
 
 // Constants
 const API_BASE_URL = "https://api.multiversx.com";
@@ -9,7 +10,19 @@ const CHAIN_ID = process.env.CHAIN_ID || "1";
 const DEFAULT_GAS_LIMIT = 500_000;
 const BATCH_SIZE = 4;
 const BATCH_DELAY_MS = 1000;
-const provider = new ProxyNetworkProvider(`${API_BASE_URL}`, { clientName: "MultiversX Transfers API for Make.com" });
+
+// Create an axios instance with a timeout of 10 seconds
+const axiosInstance = axios.create({
+    baseURL: API_BASE_URL,
+    timeout: 10000, // 10 seconds timeout
+});
+
+// Initialize ProxyNetworkProvider with the custom axios instance
+const provider = new ProxyNetworkProvider(API_BASE_URL, {
+    clientName: "MultiversX Transfers API for Make.com",
+    axiosInstance: axiosInstance,
+});
+
 const TREASURY_WALLET = process.env.TREASURY_WALLET || "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn";
 
 const safeStringify = (obj) => {
