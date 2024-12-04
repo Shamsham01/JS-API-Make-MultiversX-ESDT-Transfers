@@ -59,7 +59,8 @@ const handleUsageFee = async (req, res, next) => {
         const decimals = await getTokenDecimals("REWARD-cf6eac");
         console.log(`Decimals for REWARD token: ${decimals}`);
 
-        const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
+        // Convert amount to string immediately for safe handling
+        const adjustedAmount = convertAmountToBlockchainValue(amount.toString(), decimals);
         console.log(`Adjusted usage fee amount: ${adjustedAmount}`); // Already a string
 
         // Fetch the sender's current nonce
@@ -68,7 +69,11 @@ const handleUsageFee = async (req, res, next) => {
         console.log(`Fetched sender's nonce: ${senderNonce}`);
 
         // Create token transfer for usage fee
-        const tokenTransfer = TokenTransfer.fungibleFromAmount("REWARD-cf6eac", adjustedAmount, decimals);
+        const tokenTransfer = TokenTransfer.fungibleFromAmount(
+            "REWARD-cf6eac",
+            adjustedAmount.toString(),
+            decimals
+        );
         const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
         const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
 
@@ -77,7 +82,7 @@ const handleUsageFee = async (req, res, next) => {
             receiver: new Address(TREASURY_WALLET),
             tokenTransfers: [tokenTransfer],
             nonce: senderNonce, // Explicitly set nonce
-            gasLimit: BigInt(50_000),
+            gasLimit: BigInt(50_000), // Ensure gas limit is a BigInt
         });
 
         console.log(`Prepared usage fee transaction.`);
@@ -100,9 +105,16 @@ const handleUsageFee = async (req, res, next) => {
         }
     } catch (error) {
         console.error("Error in handleUsageFee:", error.message);
+
+        // For debugging, include the full error
+        if (error.response) {
+            console.error("Response data:", error.response.data);
+        }
+
         res.status(400).json({ error: error.message });
     }
 };
+
 
 /**
  * Send EGLD Transaction using the updated v13 SDK
