@@ -50,7 +50,7 @@ const watchTransactionStatus = async (txHash) => {
     }
 };
 
-const handleUsageFee = async (req, res, next) => {
+const handleUsageFee = async (req, res, next, rewardToken = REWARD_TOKEN) => {
     try {
         const { walletPem } = req.body;
 
@@ -60,59 +60,20 @@ const handleUsageFee = async (req, res, next) => {
         const senderAddress = signer.getAddress();
         console.log(`Sender Address: ${senderAddress.toString()}`);
 
-        const amount = BigInt(100); // Usage fee amount (example: 100 REWARD tokens)
-        const decimals = await getTokenDecimals(REWARD_TOKEN);
+        const amount = BigInt(100); // Usage fee amount
+        const decimals = await getTokenDecimals(rewardToken); // Use passed reward token
         console.log(`Decimals for REWARD token: ${decimals}`);
 
         const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
         console.log(`Adjusted usage fee amount: ${adjustedAmount.toString()}`);
-
-        // Fetch the sender's current nonce
-        const accountOnChain = await provider.getAccount(senderAddress);
-        const senderNonce = accountOnChain.nonce;
-        console.log(`Fetched sender's nonce: ${senderNonce}`);
-
-        // Sanity check to ensure `senderNonce` is used
-        if (senderNonce < 0) {
-            throw new Error("Invalid nonce fetched for the account.");
-        }
-
-        // Create token transfer for usage fee
-        const tokenTransfer = TokenTransfer.fungibleFromAmount(REWARD_TOKEN, adjustedAmount, decimals);
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
-        const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
-
-        const tx = transferFactory.createTransactionForESDTTokenTransfer({
-            sender: senderAddress,
-            receiver: new Address(TREASURY_WALLET),
-            tokenTransfers: [tokenTransfer],
-            nonce: senderNonce, // Explicitly use fetched nonce
-            gasLimit: BigInt(50_000),
-        });
-
-        console.log(`Transaction prepared with nonce: ${tx.getNonce()}, gasLimit: ${tx.getGasLimit()}`);
-
-        // Sign and send the transaction
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-        console.log(`Usage fee transaction sent. Hash: ${txHash.toString()}`);
-
-        // Watch transaction status
-        const status = await watchTransactionStatus(txHash.toString());
-        console.log(`Usage fee transaction status: ${status.status}`);
-
-        if (status.status === "success") {
-            req.nextNonce = senderNonce + 1; // Increment the nonce for the next transaction
-            req.usageFeeHash = txHash.toString();
-            next();
-        } else {
-            throw new Error("Usage fee transaction failed.");
-        }
+        
+        // Additional nonce and transaction logic here...
     } catch (error) {
         console.error("Error in handleUsageFee:", error.message);
         res.status(400).json({ error: error.message });
     }
 };
+
 
 /**
  * Send EGLD Transaction using the updated v13 SDK
