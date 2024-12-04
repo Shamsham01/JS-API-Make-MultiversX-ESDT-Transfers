@@ -41,7 +41,8 @@ const getTokenDecimals = async (tokenTicker) => {
 
         return decimals;
     } catch (error) {
-        console.error(`Error fetching decimals for token ${tokenTicker}:`, error.message);
+        // Log full error for debugging
+        console.error(`Error fetching decimals for token ${tokenTicker}:`, error);
         throw new Error('Unable to retrieve token decimals. Please try again later.');
     }
 };
