@@ -411,11 +411,13 @@ const distributeRewardsToNftOwners = async (pemContent, uniqueOwnerStats, tokenT
 };
 
 module.exports = {
+    handleUsageFee,
     sendEgld,
     sendEsdtToken,
     sendNftToken,
     sendSftToken,
     executeFreeNftMintAirdrop,
     distributeRewardsToNftOwners,
-    watchTransactionStatus,
+};
+
 };
