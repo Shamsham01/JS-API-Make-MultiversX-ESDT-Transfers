@@ -45,7 +45,7 @@ const watchTransactionStatus = async (txHash) => {
     }
 };
 
-cconst handleUsageFee = async (req, res, next) => {
+const handleUsageFee = async (req, res, next) => {
     try {
         const { walletPem } = req.body;
 
