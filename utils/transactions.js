@@ -12,7 +12,7 @@ const BATCH_SIZE = 4;
 const BATCH_DELAY_MS = 1000;
 
 // Create an axios instance with a timeout of 20 seconds
-onst axiosInstance = axios.create({
+const axiosInstance = axios.create({
     baseURL: API_BASE_URL,
     timeout: 20000, // 20 seconds timeout
     headers: { 'Content-Type': 'application/json' }, // Optional headers
