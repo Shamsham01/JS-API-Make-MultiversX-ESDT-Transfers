@@ -74,15 +74,41 @@ router.post('/egldTransfer', transactions.handleUsageFee, async (req, res) => {
 
 router.post('/esdtTransfer', transactions.handleUsageFee, async (req, res) => {
     try {
-        const { error } = schemas.esdtTransfer.validate(req.body);
-        if (error) return res.status(400).json({ error: error.details[0].message });
         const { recipient, amount, tokenTicker, walletPem } = req.body;
-        const result = await transactions.sendEsdtToken(walletPem, recipient, amount, tokenTicker, req.nextNonce);
-        res.json({ message: "ESDT transfer executed successfully.", usageFeeHash: req.usageFeeHash, result });
+
+        const signer = UserSigner.fromPem(walletPem);
+        const senderAddress = signer.getAddress();
+
+        const nonce = await getNonce(senderAddress); // Fetch nonce
+        const decimals = await getTokenDecimals(tokenTicker);
+        const adjustedAmount = convertAmountToBlockchainValue(amount, decimals);
+
+        const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, adjustedAmount, decimals);
+        const factoryConfig = new TransactionsFactoryConfig({ chainID: CHAIN_ID });
+        const transferFactory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tx = transferFactory.createTransactionForESDTTokenTransfer({
+            sender: senderAddress,
+            receiver: new Address(recipient),
+            tokenTransfers: [tokenTransfer],
+            nonce, // Use locked nonce
+        });
+
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+        incrementNonce(senderAddress); // Increment nonce
+
+        res.json({
+            message: "ESDT transfer executed successfully.",
+            usageFeeHash: req.usageFeeHash,
+            result: { txHash },
+        });
     } catch (error) {
+        console.error('Error executing ESDT transfer:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 router.post('/nftTransfer', transactions.handleUsageFee, async (req, res) => {
     try {
