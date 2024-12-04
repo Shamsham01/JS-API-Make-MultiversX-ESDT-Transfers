@@ -18,13 +18,6 @@ const TREASURY_WALLET = process.env.TREASURY_WALLET || "erd158k2c3aserjmwnyxzpln
 const DEFAULT_GAS_LIMIT = 500_000;
 const provider = new ProxyNetworkProvider(API_BASE_URL, { clientName: "MultiversX Transfers API" });
 
-router.post('/egldTransfer', transactions.handleUsageFee, async (req, res) => { ... });
-router.post('/esdtTransfer', transactions.handleUsageFee, async (req, res) => { ... });
-router.post('/nftTransfer', transactions.handleUsageFee, async (req, res) => { ... });
-router.post('/sftTransfer', transactions.handleUsageFee, async (req, res) => { ... });
-router.post('/freeNftMintAirdrop', transactions.handleUsageFee, async (req, res) => { ... });
-router.post('/distributeRewardsToNftOwners', transactions.handleUsageFee, async (req, res) => { ... });
-
 
 // EGLD Transfer
 // Define Joi schema for EGLD transfer
