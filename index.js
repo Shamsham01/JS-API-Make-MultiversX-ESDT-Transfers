@@ -199,23 +199,6 @@ const logUserActivity = (walletAddress) => {
     console.log(`User activity logged: ${walletAddress} at ${currentDate}`);
 };
 
-// Middleware to validate request body
-const validateRequestBody = (requiredFields) => {
-    return (req, res, next) => {
-        const body = req.body;
-        if (!body) {
-            return res.status(400).json({ error: "Request body is missing." });
-        }
-
-        const missingFields = requiredFields.filter(field => !(field in body));
-        if (missingFields.length > 0) {
-            return res.status(400).json({ error: `Missing required fields: ${missingFields.join(', ')}` });
-        }
-
-        next();
-    };
-};
-
 // File path for storing user activity logs
 const usersFilePath = path.join(__dirname, 'users.json');
 
