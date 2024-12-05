@@ -398,17 +398,50 @@ app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) =
 
 // Middleware to validate and sanitize request body
 const validateEsdtTransferRequest = (req, res, next) => {
-    const { recipient, amount, tokenTicker } = req.body;
+    const body = req.body;
 
-    if (!recipient || !amount || !tokenTicker) {
-        return res.status(400).json({ error: "Invalid request. Required fields: recipient, amount, tokenTicker." });
+    // Validate if the request body exists
+    if (!body) {
+        return res.status(400).json({ error: "Request body is missing or malformed." });
     }
 
+    const { recipient, amount, tokenTicker } = body;
+
+    // Validate required fields
+    if (!recipient || !amount || !tokenTicker) {
+        return res.status(400).json({
+            error: "Invalid request. Required fields: recipient, amount, tokenTicker."
+        });
+    }
+
+    // Validate amount is a positive number
     if (isNaN(amount) || amount <= 0) {
         return res.status(400).json({ error: "Invalid amount. Must be a positive number." });
     }
 
     next();
+};
+
+// Helper function to fetch token decimals
+const getTokenDecimals = async (tokenTicker) => {
+    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
+    const response = await fetch(apiUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch token info: ${response.statusText}`);
+    }
+    const tokenInfo = await response.json();
+    return tokenInfo.decimals || 0;
+};
+
+// Helper function to convert amounts to blockchain values
+const convertAmountToBlockchainValue = (amount, decimals) => {
+    const factor = new BigNumber(10).pow(decimals);
+    return new BigNumber(amount).multipliedBy(factor).toFixed(0);
+};
+
+// Helper function to calculate gas limit for ESDT transactions
+const calculateEsdtGasLimit = () => {
+    return BigInt(500000); // Base gas limit for ESDT transfer
 };
 
 // Function to send ESDT token
@@ -421,10 +454,13 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const nonce = accountOnNetwork.nonce;
 
+        const decimals = await getTokenDecimals(tokenTicker);
+        const convertedAmount = convertAmountToBlockchainValue(amount, decimals);
+
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, amount, 18); // 18 decimals as default
+        const tokenTransfer = TokenTransfer.fungibleFromBigInt(tokenTicker, BigInt(convertedAmount));
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -433,12 +469,12 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         });
 
         tx.nonce = nonce;
-        tx.gasLimit = calculateEsdtGasLimit(); // Use recommended calculation
+        tx.gasLimit = calculateEsdtGasLimit();
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction completion
+        // Wait for transaction confirmation
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -461,44 +497,6 @@ app.post('/execute/esdtTransfer', checkToken, validateEsdtTransferRequest, async
     }
 });
 
-
-// Function to send NFT tokens (amount is always 1 for NFTs)
-const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) => {
-    try {
-        const signer = UserSigner.fromPem(pemContent);
-        const senderAddress = signer.getAddress();
-        const receiverAddress = new Address(recipient);
-
-        const accountOnNetwork = await provider.getAccount(senderAddress);
-        const senderNonce = accountOnNetwork.nonce;
-
-        const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-        const factory = new TransferTransactionsFactory({ config: factoryConfig });
-
-        const tx = factory.createTransactionForESDTNFTTransfer({
-            sender: senderAddress,
-            receiver: receiverAddress,
-            token: new Token({
-                identifier: tokenIdentifier,
-                nonce: BigInt(tokenNonce)
-            }),
-            amount: 1n // Fixed amount for NFTs
-        });
-
-        tx.nonce = senderNonce;
-        tx.gasLimit = BigInt(15000000); // Adjusted for NFTs
-
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-
-        // Poll for transaction confirmation
-        const finalStatus = await checkTransactionStatus(txHash.toString());
-        return finalStatus;
-    } catch (error) {
-        console.error('Error sending NFT transaction:', error);
-        throw new Error('Transaction failed');
-    }
-};
 
 // Route for NFT transfers
 app.post('/execute/nftTransfer', checkToken, handleUsageFee, async (req, res) => {
