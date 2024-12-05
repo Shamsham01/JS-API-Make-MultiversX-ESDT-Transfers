@@ -3,7 +3,8 @@ const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
-const { ApiNetworkProvider, Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, Transaction, TransactionPayload, UserSigner } = require('@multiversx/sdk-core');
+const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, Transaction, TransactionPayload, UserSigner } = require('@multiversx/sdk-core');
+const { ApiNetworkProvider } = require('@multiversx/sdk-network-providers'); // Corrected import
 const BigNumber = require('bignumber.js');
 
 const app = express();
