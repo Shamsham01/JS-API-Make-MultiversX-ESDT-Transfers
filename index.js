@@ -34,14 +34,13 @@ const getTokenDecimals = async (tokenTicker) => {
 };
 
 const getPemContent = (req) => {
+    console.log('Request Body:', req.body);
     const pemContent = req.body.walletPem;
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
-        console.error('Invalid PEM content:', pemContent); // Debug log
         throw new Error('Invalid PEM content');
     }
     return pemContent;
 };
-
 
 const deriveWalletAddressFromPem = (pemContent) => {
     const signer = UserSigner.fromPem(pemContent);
@@ -78,31 +77,31 @@ const checkAdminToken = (req, res, next) => {
 const validateEsdtTransferRequest = (req, res, next) => {
     const { recipient, amount, tokenTicker } = req.body;
 
-    // Validate if all required fields are present
     if (!recipient || !amount || !tokenTicker) {
         return res.status(400).json({
             error: 'Invalid request. Required fields: recipient, amount, tokenTicker.',
         });
     }
 
-    // Validate amount is a positive number
     if (isNaN(amount) || amount <= 0) {
         return res.status(400).json({
             error: 'Invalid amount. Must be a positive number.',
         });
     }
 
+    console.log(`Validated ESDT transfer request: ${JSON.stringify(req.body)}`);
     next();
 };
 
 
-// Middleware to handle the usage fee
+
 const handleUsageFee = async (req, res, next) => {
     try {
         const pemContent = getPemContent(req); // Validate and retrieve PEM content
         const walletAddress = deriveWalletAddressFromPem(pemContent); // Derive wallet address from PEM
 
-        // Check if the wallet is whitelisted
+        console.log(`Processing usage fee for wallet: ${walletAddress}`);
+
         if (isWhitelisted(walletAddress)) {
             console.log(`Wallet ${walletAddress} is whitelisted. Skipping usage fee.`);
             next(); // Skip the usage fee if whitelisted
@@ -112,12 +111,14 @@ const handleUsageFee = async (req, res, next) => {
         // Send the usage fee in REWARD tokens
         const txHash = await sendUsageFee(pemContent);
         req.usageFeeHash = txHash; // Attach transaction hash to the request
+        console.log(`Usage fee processed. Transaction hash: ${req.usageFeeHash}`);
         next(); // Proceed to the next middleware or route handler
     } catch (error) {
         console.error('Error processing usage fee:', error.message);
         res.status(400).json({ error: error.message });
     }
 };
+
 
 // Utility function to send usage fee
 const sendUsageFee = async (pemContent) => {
@@ -391,43 +392,63 @@ app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) =
 
 const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     try {
-        // Validate UserSigner
-        if (!UserSigner || !UserSigner.fromPem) {
+        // Validate the UserSigner import and PEM content
+        if (!UserSigner || typeof UserSigner.fromPem !== 'function') {
             throw new Error('UserSigner is not properly imported or initialized.');
         }
 
         const signer = UserSigner.fromPem(pemContent);
+        if (!signer) {
+            throw new Error('Failed to initialize UserSigner from PEM content.');
+        }
+
+        // Derive sender address
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
+        console.log(`Sender Address: ${senderAddress.bech32()}, Recipient Address: ${receiverAddress.bech32()}`);
 
+        // Fetch sender account information from the network
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const nonce = accountOnNetwork.nonce;
+        console.log(`Sender Nonce: ${nonce}`);
 
+        // Fetch token decimals and calculate the amount to transfer
         const decimals = await getTokenDecimals(tokenTicker);
         const convertedAmount = convertAmountToBlockchainValue(amount, decimals);
+        console.log(`Token Decimals: ${decimals}, Converted Amount: ${convertedAmount}`);
 
+        // Configure the transaction factory
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
+        // Create token transfer object
         const tokenTransfer = TokenTransfer.fungibleFromBigInt(tokenTicker, BigInt(convertedAmount));
 
+        // Create ESDT transfer transaction
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: receiverAddress,
             tokenTransfers: [tokenTransfer],
         });
 
+        // Set nonce and gas limit for the transaction
         tx.nonce = nonce;
         tx.gasLimit = calculateEsdtGasLimit();
+        console.log(`Transaction Gas Limit: ${tx.gasLimit}`);
 
+        // Sign and send the transaction
         await signer.sign(tx);
+        console.log('Transaction signed successfully.');
+
         const txHash = await provider.sendTransaction(tx);
+        console.log(`Transaction sent successfully. TX Hash: ${txHash}`);
 
         // Poll for transaction confirmation
         const finalStatus = await checkTransactionStatus(txHash.toString());
+        console.log(`Transaction Status: ${finalStatus.status}`);
         return finalStatus;
     } catch (error) {
-        console.error('Error sending ESDT transaction:', error);
+        console.error('Error in sendEsdtToken:', error.message);
         throw new Error('Transaction failed: ' + error.message);
     }
 };
