@@ -152,6 +152,7 @@ const validateRequestBody = (requiredFields) => (req, res, next) => {
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
     if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
+        console.error('Invalid PEM content:', req.body); // Debug log
         throw new Error('Invalid PEM content');
     }
     return pemContent;
@@ -426,7 +427,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 };
 
 // Route for ESDT transfers
-app.post('/execute/esdtTransfer', checkToken, validateEsdtTransferRequest, async (req, res) => {
+app.post('/execute/esdtTransfer', checkToken, validateRequestBody(['walletPem', 'recipient', 'amount', 'tokenTicker']), async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
