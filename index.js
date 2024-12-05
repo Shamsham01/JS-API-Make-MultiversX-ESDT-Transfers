@@ -661,7 +661,7 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
         const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
         const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
-        const gasLimit = BigInt(10000000); // Default gas limit for interactions
+        const gasLimit = BigInt(15000000); // Default gas limit for interactions
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
