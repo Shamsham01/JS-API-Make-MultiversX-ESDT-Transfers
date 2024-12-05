@@ -55,6 +55,28 @@ const checkAdminToken = (req, res, next) => {
     }
 };
 
+// Middleware to validate and sanitize the ESDT transfer request body
+const validateEsdtTransferRequest = (req, res, next) => {
+    const { recipient, amount, tokenTicker } = req.body;
+
+    // Validate if all required fields are present
+    if (!recipient || !amount || !tokenTicker) {
+        return res.status(400).json({
+            error: 'Invalid request. Required fields: recipient, amount, tokenTicker.',
+        });
+    }
+
+    // Validate amount is a positive number
+    if (isNaN(amount) || amount <= 0) {
+        return res.status(400).json({
+            error: 'Invalid amount. Must be a positive number.',
+        });
+    }
+
+    next();
+};
+
+
 // Middleware to handle the usage fee
 const handleUsageFee = async (req, res, next) => {
     try {
