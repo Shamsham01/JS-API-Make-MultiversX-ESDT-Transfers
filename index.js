@@ -33,6 +33,21 @@ const getTokenDecimals = async (tokenTicker) => {
     return tokenInfo.decimals || 0;
 };
 
+const getPemContent = (req) => {
+    const pemContent = req.body.walletPem;
+    if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
+        console.error('Invalid PEM content:', pemContent); // Debug log
+        throw new Error('Invalid PEM content');
+    }
+    return pemContent;
+};
+
+
+const deriveWalletAddressFromPem = (pemContent) => {
+    const signer = UserSigner.fromPem(pemContent);
+    return signer.getAddress().bech32();
+};
+
 const convertAmountToBlockchainValue = (amount, decimals) => {
     const factor = new BigNumber(10).pow(decimals);
     return new BigNumber(amount).multipliedBy(factor).toFixed(0);
@@ -147,20 +162,6 @@ const validateRequestBody = (requiredFields) => (req, res, next) => {
         return res.status(400).json({ error: `Missing required fields: ${missingFields.join(', ')}` });
     }
     next();
-};
-
-const getPemContent = (req) => {
-    const pemContent = req.body.walletPem;
-    if (!pemContent || typeof pemContent !== 'string' || !pemContent.includes('-----BEGIN PRIVATE KEY-----')) {
-        console.error('Invalid PEM content:', req.body); // Debug log
-        throw new Error('Invalid PEM content');
-    }
-    return pemContent;
-};
-
-const deriveWalletAddressFromPem = (pemContent) => {
-    const signer = UserSigner.fromPem(pemContent);
-    return signer.getAddress().bech32();
 };
 
 // Whitelist Management
@@ -390,6 +391,11 @@ app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) =
 
 const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     try {
+        // Validate UserSigner
+        if (!UserSigner || !UserSigner.fromPem) {
+            throw new Error('UserSigner is not properly imported or initialized.');
+        }
+
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
         const receiverAddress = new Address(recipient);
@@ -417,11 +423,11 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction confirmation
+        // Poll for transaction confirmation
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
-        console.error('Error sending ESDT transaction:', error.message);
+        console.error('Error sending ESDT transaction:', error);
         throw new Error('Transaction failed: ' + error.message);
     }
 };
