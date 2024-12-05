@@ -21,6 +21,28 @@ const provider = new ApiNetworkProvider("https://gateway.multiversx.com", { clie
 
 const whitelistFilePath = path.join(__dirname, 'whitelist.json');
 
+// Utility function to fetch token decimals
+const getTokenDecimals = async (tokenTicker) => {
+    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
+    const response = await fetch(apiUrl);
+    if (!response.ok) {
+        throw new Error(`Failed to fetch token info: ${response.statusText}`);
+    }
+    const tokenInfo = await response.json();
+    return tokenInfo.decimals || 0;
+};
+
+// Utility function to convert amounts to blockchain values
+const convertAmountToBlockchainValue = (amount, decimals) => {
+    const factor = new BigNumber(10).pow(decimals);
+    return new BigNumber(amount).multipliedBy(factor).toFixed(0);
+};
+
+// Helper function to calculate gas limit for ESDT transactions
+const calculateEsdtGasLimit = () => {
+    return BigInt(500000); // Base gas limit for ESDT transfer
+};
+
 // Middleware to check admin authorization token
 const checkAdminToken = (req, res, next) => {
     const token = req.headers.authorization;
@@ -327,23 +349,6 @@ const handleUsageFee = async (req, res, next) => {
 // Utility function to convert EGLD to WEI (1 EGLD = 10^18 WEI)
 const convertEGLDToWEI = (amount) => {
     return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);
-};
-
-// Utility function to fetch token decimals
-const getTokenDecimals = async (tokenTicker) => {
-    const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
-    const response = await fetch(apiUrl);
-    if (!response.ok) {
-        throw new Error(`Failed to fetch token info: ${response.statusText}`);
-    }
-    const tokenInfo = await response.json();
-    return tokenInfo.decimals || 0;
-};
-
-// Utility function to convert amounts to blockchain values
-const convertAmountToBlockchainValue = (amount, decimals) => {
-    const factor = new BigNumber(10).pow(decimals);
-    return new BigNumber(amount).multipliedBy(factor).toFixed(0);
 };
 
 // Function to send EGLD
