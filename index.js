@@ -55,6 +55,65 @@ const checkAdminToken = (req, res, next) => {
     }
 };
 
+// Middleware to handle the usage fee
+const handleUsageFee = async (req, res, next) => {
+    try {
+        const pemContent = getPemContent(req); // Validate and retrieve PEM content
+        const walletAddress = deriveWalletAddressFromPem(pemContent); // Derive wallet address from PEM
+
+        // Check if the wallet is whitelisted
+        if (isWhitelisted(walletAddress)) {
+            console.log(`Wallet ${walletAddress} is whitelisted. Skipping usage fee.`);
+            next(); // Skip the usage fee if whitelisted
+            return;
+        }
+
+        // Send the usage fee in REWARD tokens
+        const txHash = await sendUsageFee(pemContent);
+        req.usageFeeHash = txHash; // Attach transaction hash to the request
+        next(); // Proceed to the next middleware or route handler
+    } catch (error) {
+        console.error('Error processing usage fee:', error.message);
+        res.status(400).json({ error: error.message });
+    }
+};
+
+// Utility function to send usage fee
+const sendUsageFee = async (pemContent) => {
+    const signer = UserSigner.fromPem(pemContent);
+    const senderAddress = signer.getAddress();
+    const receiverAddress = new Address(TREASURY_WALLET);
+
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    const nonce = accountOnNetwork.nonce;
+
+    const decimals = await getTokenDecimals(REWARD_TOKEN);
+    const convertedAmount = convertAmountToBlockchainValue(USAGE_FEE, decimals);
+
+    const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+    const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+    const tx = factory.createTransactionForESDTTokenTransfer({
+        sender: senderAddress,
+        receiver: receiverAddress,
+        tokenTransfers: [TokenTransfer.fungibleFromBigInt(REWARD_TOKEN, BigInt(convertedAmount))],
+    });
+
+    tx.nonce = nonce;
+    tx.gasLimit = calculateEsdtGasLimit();
+
+    await signer.sign(tx);
+    const txHash = await provider.sendTransaction(tx);
+
+    // Wait for transaction confirmation
+    const status = await checkTransactionStatus(txHash.toString());
+    if (status.status !== "success") {
+        throw new Error('Usage fee transaction failed. Ensure sufficient REWARD tokens are available.');
+    }
+    return txHash.toString();
+};
+
+
 const validateRequestBody = (requiredFields) => (req, res, next) => {
     const body = req.body || {};
     const missingFields = requiredFields.filter((field) => !body[field]);
