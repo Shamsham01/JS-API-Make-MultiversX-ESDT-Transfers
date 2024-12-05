@@ -396,7 +396,22 @@ app.post('/execute/egldTransfer', checkToken, handleUsageFee, async (req, res) =
     }
 });
 
-// Function to send ESDT tokens
+// Middleware to validate and sanitize request body
+const validateEsdtTransferRequest = (req, res, next) => {
+    const { recipient, amount, tokenTicker } = req.body;
+
+    if (!recipient || !amount || !tokenTicker) {
+        return res.status(400).json({ error: "Invalid request. Required fields: recipient, amount, tokenTicker." });
+    }
+
+    if (isNaN(amount) || amount <= 0) {
+        return res.status(400).json({ error: "Invalid amount. Must be a positive number." });
+    }
+
+    next();
+};
+
+// Function to send ESDT token
 const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -406,37 +421,34 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const nonce = accountOnNetwork.nonce;
 
-        const decimals = await getTokenDecimals(tokenTicker);
-        const convertedAmount = convertAmountToBlockchainValue(amount, decimals);
-
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
+
+        const tokenTransfer = TokenTransfer.fungibleFromAmount(tokenTicker, amount, 18); // 18 decimals as default
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
             receiver: receiverAddress,
-            tokenTransfers: [
-                TokenTransfer.fungibleFromBigInt(tokenTicker, BigInt(convertedAmount))
-            ]
+            tokenTransfers: [tokenTransfer],
         });
 
         tx.nonce = nonce;
-        tx.gasLimit = calculateEsdtGasLimit();
+        tx.gasLimit = calculateEsdtGasLimit(); // Use recommended calculation
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Poll transaction status
+        // Wait for transaction completion
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
         console.error('Error sending ESDT transaction:', error);
-        throw new Error('Transaction failed');
+        throw new Error('Transaction failed: ' + error.message);
     }
 };
 
 // Route for ESDT transfers
-app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
+app.post('/execute/esdtTransfer', checkToken, validateEsdtTransferRequest, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
@@ -448,6 +460,7 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
+
 
 // Function to send NFT tokens (amount is always 1 for NFTs)
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) => {
