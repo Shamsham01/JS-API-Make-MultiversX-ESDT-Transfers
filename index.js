@@ -244,9 +244,6 @@ const calculateNftGasLimit = (qty) => 15000000 * qty;
 // Utility to calculate total gas limit for SFTs
 const calculateSftGasLimit = (qty) => 500000 * qty;
 
-// Utility to calculate base gas limit for ESDT transfers
-const calculateEsdtGasLimit = () => BigInt(500000);
-
 // Utility to convert EGLD to WEI (1 EGLD = 10^18 WEI)
 const convertEGLDToWEI = (amount) => {
     return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);
