@@ -18,6 +18,10 @@ const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6
 const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot";
 const provider = new ApiNetworkProvider("https://gateway.multiversx.com", { clientName: "multiversx-app" });
 
+// Middleware for parsing JSON and URL-encoded data
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({ extended: true }));
+
 // Utility Functions
 const getTokenDecimals = async (tokenTicker) => {
     const apiUrl = `https://api.multiversx.com/tokens/${tokenTicker}`;
