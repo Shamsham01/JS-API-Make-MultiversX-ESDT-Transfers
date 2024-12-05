@@ -202,11 +202,6 @@ const logUserActivity = (walletAddress) => {
 // File path for storing user activity logs
 const usersFilePath = path.join(__dirname, 'users.json');
 
-// Utility to derive wallet address from PEM
-const deriveWalletAddressFromPem = (pemContent) => {
-    const signer = UserSigner.fromPem(pemContent);
-    return signer.getAddress().bech32();
-};
 
 // --------------- Transaction Confirmation Logic (Polling) --------------- //
 
