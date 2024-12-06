@@ -1,11 +1,20 @@
-const express = require('express');
-const bodyParser = require('body-parser');
-const fetch = require('node-fetch');
-const fs = require('fs');
-const path = require('path');
-const { Address, Token, TokenTransfer, TransferTransactionsFactory, TransactionsFactoryConfig, Transaction, TransactionPayload, UserSigner } = require('@multiversx/sdk-core');
-const { ApiNetworkProvider } = require('@multiversx/sdk-network-providers');
-const BigNumber = require('bignumber.js');
+import express from 'express';
+import bodyParser from 'body-parser';
+import fetch from 'node-fetch';
+import fs from 'fs';
+import path from 'path';
+import {
+    Address,
+    Token,
+    TokenTransfer,
+    TransferTransactionsFactory,
+    TransactionsFactoryConfig,
+    Transaction,
+    TransactionPayload,
+    UserSigner,
+} from '@multiversx/sdk-core';
+import { ApiNetworkProvider } from '@multiversx/sdk-network-providers';
+import BigNumber from 'bignumber.js';
 
 // Constants
 const app = express();
