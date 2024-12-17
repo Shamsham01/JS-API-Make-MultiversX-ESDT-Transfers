@@ -13,6 +13,7 @@ const USAGE_FEE = 100; // Fee in REWARD tokens
 const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
 const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make webhook URL
+const adminRoutes = require('./admin');
 
 // Set up the network provider for MultiversX (mainnet or devnet)
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
@@ -797,6 +798,8 @@ res.json({
         res.status(500).json({ error: error.message });
     }
 });
+
+app.use('/admin', adminRoutes);
 
 
 // Start the server
