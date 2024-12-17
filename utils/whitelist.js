@@ -52,12 +52,14 @@ const whitelistEntrySchema = Joi.object({
 // Load whitelist
 const loadWhitelist = async () => {
     try {
-        return await loadFileData(whitelistFilePath);
+        const data = await loadFileData(whitelistFilePath);
+        return Array.isArray(data) ? data : []; // Ensure the data is always an array
     } catch (error) {
         console.error('Error loading whitelist:', error.message);
         return [];
     }
 };
+
 
 // Save whitelist
 const saveWhitelist = async (whitelist) => {
