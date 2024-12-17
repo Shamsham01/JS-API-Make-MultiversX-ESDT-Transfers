@@ -26,13 +26,12 @@ const loadFileData = async (filePath) => {
     try {
         const rawData = await fs.readFile(filePath, 'utf8');
         const parsedData = JSON.parse(rawData);
-        return Array.isArray(parsedData) ? parsedData : []; // Force array output
+        return Array.isArray(parsedData) ? parsedData : []; // Always return an array
     } catch (error) {
         console.error(`Error reading file ${filePath}:`, error.message);
-        return []; // Safely return an empty array on failure
+        return [];
     }
 };
-
 
 // Helper: Save data to a JSON file
 const saveFileData = async (filePath, data) => {
@@ -96,7 +95,13 @@ const removeFromWhitelist = async (walletAddress) => {
     if (error) throw new Error(error.details[0].message);
 
     const whitelist = await loadWhitelist();
-    console.log("Current whitelist before removal:", whitelist); // Debug log
+    console.log("Loaded Whitelist Data Type:", typeof whitelist); // Debug: Log type
+    console.log("Loaded Whitelist:", whitelist);
+
+    if (!Array.isArray(whitelist)) {
+        console.error("Loaded whitelist is not an array.");
+        throw new Error("Whitelist data is invalid.");
+    }
 
     const updatedWhitelist = whitelist.filter(entry => entry.walletAddress !== walletAddress);
 
@@ -108,7 +113,6 @@ const removeFromWhitelist = async (walletAddress) => {
     console.log(`Wallet ${walletAddress} removed successfully.`);
     return { message: `Wallet ${walletAddress} removed from the whitelist.` };
 };
-
 
 // Load users
 const loadUsers = async () => {
