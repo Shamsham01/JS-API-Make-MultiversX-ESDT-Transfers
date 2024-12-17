@@ -6,13 +6,17 @@ const Joi = require('joi');
 const whitelistFilePath = process.env.WHITELIST_FILE_PATH || path.join(__dirname, 'whitelist.json');
 const usersFilePath = process.env.USERS_FILE_PATH || path.join(__dirname, 'users.json');
 
+console.log("Loading whitelist.js from:", __filename);
+
 // Helper: Ensure file exists and initialize if missing
 const ensureFileExists = async (filePath, defaultContent = '[]') => {
     try {
-        await fs.access(filePath).catch(async () => {
-            await fs.writeFile(filePath, defaultContent, 'utf8'); // Ensure valid JSON array
+        // Check if the file exists; do nothing if it does
+        const exists = await fs.access(filePath).then(() => true).catch(() => false);
+        if (!exists) {
+            await fs.writeFile(filePath, defaultContent, 'utf8');
             console.log(`File ${filePath} initialized with default content.`);
-        });
+        }
     } catch (error) {
         console.error(`Error creating file ${filePath}:`, error.message);
         throw error;
