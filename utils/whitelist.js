@@ -55,8 +55,8 @@ const whitelistEntrySchema = Joi.object({
 const loadWhitelist = async () => {
     try {
         const whitelist = await loadFileData(whitelistFilePath);
-        console.log("Whitelist loaded successfully:", whitelist); // Debug log
-        return whitelist;
+        console.log("Debug: Whitelist loaded", whitelist);
+        return Array.isArray(whitelist) ? whitelist : []; // Guarantee array
     } catch (error) {
         console.error('Error loading whitelist:', error.message);
         return [];
@@ -94,10 +94,13 @@ const removeFromWhitelist = async (walletAddress) => {
     const { error } = walletAddressSchema.validate(walletAddress);
     if (error) throw new Error(error.details[0].message);
 
+    // Ensure loadWhitelist resolves properly
     const whitelist = await loadWhitelist();
-    console.log("Loaded Whitelist Data Type:", typeof whitelist); // Debug: Log type
-    console.log("Loaded Whitelist:", whitelist);
 
+    console.log("Loaded Whitelist (Type):", typeof whitelist);
+    console.log("Loaded Whitelist (Content):", whitelist);
+
+    // Safeguard: Ensure the loaded data is an array
     if (!Array.isArray(whitelist)) {
         console.error("Loaded whitelist is not an array.");
         throw new Error("Whitelist data is invalid.");
@@ -113,6 +116,7 @@ const removeFromWhitelist = async (walletAddress) => {
     console.log(`Wallet ${walletAddress} removed successfully.`);
     return { message: `Wallet ${walletAddress} removed from the whitelist.` };
 };
+
 
 // Load users
 const loadUsers = async () => {
