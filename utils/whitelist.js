@@ -10,7 +10,7 @@ const usersFilePath = process.env.USERS_FILE_PATH || path.join(__dirname, 'users
 const ensureFileExists = async (filePath, defaultContent = '[]') => {
     try {
         await fs.access(filePath).catch(async () => {
-            await fs.writeFile(filePath, defaultContent);
+            await fs.writeFile(filePath, defaultContent, 'utf8'); // Ensure valid JSON array
             console.log(`File ${filePath} initialized with default content.`);
         });
     } catch (error) {
@@ -19,17 +19,20 @@ const ensureFileExists = async (filePath, defaultContent = '[]') => {
     }
 };
 
+
 // Helper: Load data from a JSON file
 const loadFileData = async (filePath) => {
     await ensureFileExists(filePath);
     try {
         const rawData = await fs.readFile(filePath, 'utf8');
-        return JSON.parse(rawData);
+        const parsedData = JSON.parse(rawData);
+        return Array.isArray(parsedData) ? parsedData : []; // Force array output
     } catch (error) {
         console.error(`Error reading file ${filePath}:`, error.message);
-        throw new Error(`Could not load data from file: ${filePath}`);
+        return []; // Safely return an empty array on failure
     }
 };
+
 
 // Helper: Save data to a JSON file
 const saveFileData = async (filePath, data) => {
@@ -52,14 +55,14 @@ const whitelistEntrySchema = Joi.object({
 // Load whitelist
 const loadWhitelist = async () => {
     try {
-        const data = await loadFileData(whitelistFilePath);
-        return Array.isArray(data) ? data : []; // Ensure the data is always an array
+        const whitelist = await loadFileData(whitelistFilePath);
+        console.log("Whitelist loaded successfully:", whitelist); // Debug log
+        return whitelist;
     } catch (error) {
         console.error('Error loading whitelist:', error.message);
         return [];
     }
 };
-
 
 // Save whitelist
 const saveWhitelist = async (whitelist) => {
@@ -93,6 +96,8 @@ const removeFromWhitelist = async (walletAddress) => {
     if (error) throw new Error(error.details[0].message);
 
     const whitelist = await loadWhitelist();
+    console.log("Current whitelist before removal:", whitelist); // Debug log
+
     const updatedWhitelist = whitelist.filter(entry => entry.walletAddress !== walletAddress);
 
     if (whitelist.length === updatedWhitelist.length) {
@@ -100,8 +105,10 @@ const removeFromWhitelist = async (walletAddress) => {
     }
 
     await saveWhitelist(updatedWhitelist);
+    console.log(`Wallet ${walletAddress} removed successfully.`);
     return { message: `Wallet ${walletAddress} removed from the whitelist.` };
 };
+
 
 // Load users
 const loadUsers = async () => {
