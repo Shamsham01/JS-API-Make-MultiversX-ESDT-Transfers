@@ -413,7 +413,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
     }
 };
 
-// Route for ESDT transfers with wallet address derivation and logging
+// Route for ESDT transfers
 app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
@@ -638,9 +638,6 @@ app.post('/execute/sftTransfer', checkToken, handleUsageFee, async (req, res) =>
     try {
         const { recipient, amount, tokenTicker, tokenNonce } = req.body;
         const pemContent = getPemContent(req);
-
-        // Log the payload received from the request
-        console.log('Request Body:', req.body);
 
         const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
          res.json({ result, usageFeeHash: req.usageFeeHash });
