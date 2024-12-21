@@ -107,23 +107,20 @@ const deriveWalletAddressFromPem = (pemContent) => {
 };
 
 // --------------- Transaction Confirmation Logic (Polling) --------------- //
-const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
+const checkTransactionStatus = async (txHash, retries = 40, delay = 5000) => { // Extended retries and delay
     const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
 
     for (let i = 0; i < retries; i++) {
         try {
             const response = await fetch(txStatusUrl);
 
-            // Ensure we only parse valid responses
             if (!response.ok) {
                 console.warn(`Non-200 response for ${txHash}: ${response.status}`);
                 throw new Error(`HTTP error ${response.status}`);
             }
 
-            // Attempt to parse the JSON response
             const txStatus = await response.json();
 
-            // Check the transaction status
             if (txStatus.status === "success") {
                 return { status: "success", txHash };
             } else if (txStatus.status === "fail") {
@@ -132,18 +129,9 @@ const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
 
             console.log(`Transaction ${txHash} still pending, retrying...`);
         } catch (error) {
-            if (error instanceof SyntaxError) {
-                console.error(
-                    `Failed to parse JSON for ${txHash}: ${error.message}. Retrying...`
-                );
-            } else {
-                console.error(
-                    `Error fetching transaction ${txHash}: ${error.message}`
-                );
-            }
+            console.error(`Error fetching transaction ${txHash}: ${error.message}`);
         }
 
-        // Wait before retrying
         await new Promise(resolve => setTimeout(resolve, delay));
     }
 
@@ -151,6 +139,7 @@ const checkTransactionStatus = async (txHash, retries = 20, delay = 4000) => {
         `Transaction ${txHash} status could not be determined after ${retries} retries.`
     );
 };
+
 
 // --------------- Gas Calculation Functions --------------- //
 
