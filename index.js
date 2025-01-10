@@ -648,7 +648,11 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
         const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
         const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
-        const gasLimit = BigInt(17000000); // Default gas limit for interactions
+        // Dynamic gas calculation: base gas + additional gas per mint
+        const baseGas = BigInt(17000000); // Base gas for single mint
+        const additionalGasPerMint = BigInt(8000000); // Estimated additional gas per mint
+        const gasLimit = baseGas + BigInt(qty - 1) * additionalGasPerMint;
+
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const senderNonce = accountOnNetwork.nonce;
 
@@ -677,9 +681,13 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
 app.post('/execute/freeNftMintAirdrop', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { scAddress, endpoint, receiver, qty } = req.body;
+        if (!scAddress || !endpoint || !receiver || !qty || qty <= 0) {
+            return res.status(400).json({ error: 'Invalid input parameters' });
+        }
+
         const pemContent = getPemContent(req);
         const result = await executeFreeNftMintAirdrop(pemContent, scAddress, endpoint, receiver, qty);
-         res.json({ result, usageFeeHash: req.usageFeeHash });
+        res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing free NFT mint airdrop:', error);
         res.status(500).json({ error: error.message });
