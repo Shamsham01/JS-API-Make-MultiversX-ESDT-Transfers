@@ -495,7 +495,6 @@ app.post('/execute/metaEsdtTransfer', checkToken, handleUsageFee, async (req, re
 
 // Function to validate amount before conversion to BigInt
 const validateNumberInput = (value, fieldName) => {
-    console.log(`Validating ${fieldName}:`, value);  // Log the input value for debugging
     const numValue = Number(value);
     if (isNaN(numValue) || numValue <= 0) {
         throw new Error(`Invalid ${fieldName} provided. It must be a positive number.`);
