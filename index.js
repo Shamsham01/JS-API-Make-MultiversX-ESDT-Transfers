@@ -709,14 +709,15 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
 
         const signer = UserSigner.fromPem(pemContent);
         const senderAddress = signer.getAddress();
-
         const accountOnNetwork = await provider.getAccount(senderAddress);
         let currentNonce = accountOnNetwork.nonce;
 
-        const decimals = await getTokenDecimals(tokenTicker);
-        const multiplierEnabled = multiply === "yes";
-
+        const decimals = await getTokenDecimals(tokenTicker); // Get token decimals
+        const multiplierEnabled = multiply === "yes"; // Check if multiplier is enabled
         const txHashes = [];
+
+        // Helper function to calculate dynamic gas limit
+        const calculateDynamicGasLimit = () => BigInt(50000 + 1500 * tokenTicker.length + 100000);
 
         // Helper function to create a transaction
         const createTransaction = (owner, tokensCount, nonce) => {
@@ -740,7 +741,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
             });
 
             tx.nonce = nonce;
-            tx.gasLimit = calculateEsdtGasLimit();
+            tx.gasLimit = calculateDynamicGasLimit(); // Set dynamic gas limit
 
             return tx;
         };
@@ -752,7 +753,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
                 const tx = createTransaction(
                     ownerData.owner,
                     ownerData.tokensCount,
-                    currentNonce + i + index
+                    currentNonce + index
                 );
 
                 return signer.sign(tx).then(async () => {
@@ -773,6 +774,8 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
             if (i + 3 < uniqueOwnerStats.length) {
                 await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay for next batch
             }
+
+            currentNonce += batch.length; // Increment nonce for next batch
         }
 
         // Step 2: Poll for transaction statuses in parallel after all transactions are sent
@@ -781,19 +784,21 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
                 .then(status => ({ owner, txHash, status: status.status }))
                 .catch(error => ({ owner, txHash, error: error.message, status: 'failed' }))
         );
+
         const statusResults = await Promise.all(statusPromises);
 
         // Return transaction results with UsageFee hash
-res.json({
-    message: 'Rewards distribution completed.',
-    usageFeeHash: req.usageFeeHash, // Include the UsageFee transaction hash
-    results: statusResults, // Existing results from the rewards distribution
-});
+        res.json({
+            message: 'Rewards distribution completed.',
+            usageFeeHash: req.usageFeeHash, // Include the UsageFee transaction hash
+            results: statusResults, // Include results from the rewards distribution
+        });
     } catch (error) {
         console.error('Error during rewards distribution:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 app.use('/admin', adminRoutes);
 
