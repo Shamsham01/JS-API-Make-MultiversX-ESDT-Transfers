@@ -741,7 +741,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
             });
 
             tx.nonce = nonce;
-            tx.gasLimit = calculateDynamicGasLimit(); // Set dynamic gas limit
+            tx.gasLimit = BigInt(500000); // Fixed Gas Limit
 
             return tx;
         };
