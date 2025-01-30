@@ -17,6 +17,8 @@ const adminRoutes = require('./admin');
 
 // Set up the network provider for MultiversX (mainnet or devnet)
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
+// Helper function to wait for a specified time
+const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 const fs = require('fs');
 const path = require('path');
@@ -106,8 +108,8 @@ const deriveWalletAddressFromPem = (pemContent) => {
     return signer.getAddress().toString();
 };
 
-// --------------- Transaction Confirmation Logic (Polling) --------------- //
-const checkTransactionStatus = async (txHash, retries = 40, delay = 5000) => { // Extended retries and delay
+// Helper function to check transaction status
+const checkTransactionStatus = async (txHash, retries = 40, delay = 5000) => {
     const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
 
     for (let i = 0; i < retries; i++) {
@@ -132,12 +134,60 @@ const checkTransactionStatus = async (txHash, retries = 40, delay = 5000) => { /
             console.error(`Error fetching transaction ${txHash}: ${error.message}`);
         }
 
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await wait(delay);
     }
 
     throw new Error(
         `Transaction ${txHash} status could not be determined after ${retries} retries.`
     );
+};
+
+// Helper function to poll transaction statuses with retries
+const pollTransactionStatuses = async (txHashes, batchSize = 10, delay = 10000, maxRetries = 10) => {
+    const results = [];
+    const pendingTransactions = [...txHashes]; // Copy of all transaction hashes
+
+    // Wait 7 seconds before starting to poll (to account for block time)
+    await wait(7000);
+
+    let retryCount = 0;
+    while (pendingTransactions.length > 0 && retryCount < maxRetries) {
+        const batch = pendingTransactions.splice(0, batchSize); // Take the next batch
+        const batchPromises = batch.map(async ({ owner, txHash }) => {
+            try {
+                const status = await checkTransactionStatus(txHash);
+                if (status.status === "success" || status.status === "fail") {
+                    return { owner, txHash, status: status.status };
+                } else {
+                    // Transaction is still pending, add it back to the list
+                    pendingTransactions.push({ owner, txHash });
+                    return null; // Skip this result for now
+                }
+            } catch (error) {
+                return { owner, txHash, error: error.message, status: 'failed' };
+            }
+        });
+
+        // Process the current batch
+        const batchResults = await Promise.all(batchPromises);
+        const completedResults = batchResults.filter(result => result !== null); // Filter out pending transactions
+        results.push(...completedResults);
+
+        // If there are still pending transactions, wait before the next batch
+        if (pendingTransactions.length > 0) {
+            await wait(delay); // Wait 10 seconds before the next batch
+            retryCount++;
+        }
+    }
+
+    // Handle any remaining pending transactions after max retries
+    if (pendingTransactions.length > 0) {
+        pendingTransactions.forEach(({ owner, txHash }) => {
+            results.push({ owner, txHash, error: 'Max retries reached', status: 'pending' });
+        });
+    }
+
+    return results;
 };
 
 
