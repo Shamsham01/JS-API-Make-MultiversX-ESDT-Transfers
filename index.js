@@ -693,7 +693,7 @@ app.post('/execute/freeNftMintAirdrop', checkToken, handleUsageFee, async (req, 
     }
 });
 
-// Function for Distributing Rewards to NFT Owners with Parallel Broadcasting at 3 tx/s
+// Endpoint for distributing rewards to NFT owners
 app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, async (req, res) => {
     try {
         const pemContent = getPemContent(req);
@@ -715,9 +715,6 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
         const decimals = await getTokenDecimals(tokenTicker); // Get token decimals
         const multiplierEnabled = multiply === "yes"; // Check if multiplier is enabled
         const txHashes = [];
-
-        // Helper function to calculate dynamic gas limit
-        const calculateDynamicGasLimit = () => BigInt(50000 + 1500 * tokenTicker.length + 100000);
 
         // Helper function to create a transaction
         const createTransaction = (owner, tokensCount, nonce) => {
@@ -772,20 +769,14 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
 
             // Throttle to 3 transactions per second
             if (i + 3 < uniqueOwnerStats.length) {
-                await new Promise(resolve => setTimeout(resolve, 1000)); // 1-second delay for next batch
+                await wait(1000); // 1-second delay for next batch
             }
 
             currentNonce += batch.length; // Increment nonce for next batch
         }
 
-        // Step 2: Poll for transaction statuses in parallel after all transactions are sent
-        const statusPromises = txHashes.map(({ owner, txHash }) =>
-            checkTransactionStatus(txHash)
-                .then(status => ({ owner, txHash, status: status.status }))
-                .catch(error => ({ owner, txHash, error: error.message, status: 'failed' }))
-        );
-
-        const statusResults = await Promise.all(statusPromises);
+        // Step 2: Poll transaction statuses in batches with retries
+        const statusResults = await pollTransactionStatuses(txHashes);
 
         // Return transaction results with UsageFee hash
         res.json({
