@@ -840,6 +840,75 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
     }
 });
 
+// ESDT Creator Warp Endpoint
+app.post('/warps/esdt-create', checkToken, handleUsageFee, async (req, res) => {
+    try {
+        const { walletPem, tokenName, tokenTicker, initialSupply, tokenDecimals } = req.body;
+
+        if (!walletPem || !tokenName || !tokenTicker || !initialSupply || tokenDecimals === undefined) {
+            return res.status(400).json({ error: 'Missing required parameters: walletPem, tokenName, tokenTicker, initialSupply, tokenDecimals' });
+        }
+
+        console.log(`Creating ESDT: ${tokenName} (${tokenTicker}) with supply: ${initialSupply} decimals: ${tokenDecimals}`);
+
+        // Step 1: Validate Inputs
+        if (!/^[a-zA-Z0-9]+$/.test(tokenName)) {
+            return res.status(400).json({ error: "Invalid Token Name. Only letters and numbers are allowed." });
+        }
+        if (!/^[A-Z0-9]+$/.test(tokenTicker)) {
+            return res.status(400).json({ error: "Invalid Token Ticker. Only uppercase letters and numbers are allowed." });
+        }
+        if (tokenDecimals < 0 || tokenDecimals > 18) {
+            return res.status(400).json({ error: "Invalid Token Decimals. Must be between 0 and 18." });
+        }
+
+        // Step 2: Scale Initial Supply by Token Decimals
+        const initialSupplyBlockchain = BigInt(initialSupply) * BigInt(10 ** tokenDecimals);
+
+        // Step 3: Construct Smart Contract Call
+        const scAddress = "erd1qqqqqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzllls8a5w6u"; // ESDT Creator SC
+        const signer = UserSigner.fromPem(walletPem);
+        const senderAddress = signer.getAddress();
+        const senderNonce = (await provider.getAccount(senderAddress)).nonce;
+
+        const txPayload = new TransactionPayload(
+            `issue@${Buffer.from(tokenName).toString("hex")}@${Buffer.from(tokenTicker).toString("hex")}@${initialSupplyBlockchain.toString(16)}@${tokenDecimals.toString(16)}`
+        );
+
+        const tx = new Transaction({
+            nonce: senderNonce,
+            receiver: new Address(scAddress),
+            sender: senderAddress,
+            value: "50000000000000000", // 0.05 EGLD token creation fee
+            gasLimit: BigInt(60000000),
+            data: txPayload,
+            chainID: '1',
+        });
+
+        // Step 4: Sign and Send Transaction
+        await signer.sign(tx);
+        const txHash = await provider.sendTransaction(tx);
+
+        // Step 5: Poll for transaction confirmation
+        const finalStatus = await checkTransactionStatus(txHash.toString());
+
+        res.json({
+            message: `ESDT token creation initiated for ${tokenName} (${tokenTicker}).`,
+            tokenName,
+            tokenTicker,
+            initialSupply,
+            tokenDecimals,
+            transactionHash: txHash.toString(),
+            usageFeeHash: req.usageFeeHash, // Attach transaction hash of the usage fee deduction
+            status: finalStatus,
+        });
+
+    } catch (error) {
+        console.error('Error executing ESDT creation via Warp:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 
 app.use('/admin', adminRoutes);
 
