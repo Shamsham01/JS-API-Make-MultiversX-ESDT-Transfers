@@ -840,74 +840,75 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
     }
 });
 
-// ESDT Creator Warp Endpoint
-app.post('/execute/esdt-create', checkToken, handleUsageFee, async (req, res) => {
+// ESDT Creator Endpoint
+app.post('/execute/esdt-create', checkToken, async (req, res) => {
     try {
         const { walletPem, tokenName, tokenTicker, initialSupply, tokenDecimals } = req.body;
 
-        if (!walletPem || !tokenName || !tokenTicker || !initialSupply || tokenDecimals === undefined) {
-            return res.status(400).json({ error: 'Missing required parameters: walletPem, tokenName, tokenTicker, initialSupply, tokenDecimals' });
+        if (!walletPem || !tokenName || !tokenTicker || initialSupply === undefined || tokenDecimals === undefined) {
+            return res.status(400).json({ error: "Missing required parameters" });
         }
 
-        console.log(`Creating ESDT: ${tokenName} (${tokenTicker}) with supply: ${initialSupply} decimals: ${tokenDecimals}`);
+        console.log(`Creating ESDT: ${tokenName} (${tokenTicker}), Supply: ${initialSupply}, Decimals: ${tokenDecimals}`);
 
-        // Step 1: Validate Inputs
-        if (!/^[a-zA-Z0-9]+$/.test(tokenName)) {
-            return res.status(400).json({ error: "Invalid Token Name. Only letters and numbers are allowed." });
-        }
-        if (!/^[A-Z0-9]+$/.test(tokenTicker)) {
-            return res.status(400).json({ error: "Invalid Token Ticker. Only uppercase letters and numbers are allowed." });
-        }
-        if (tokenDecimals < 0 || tokenDecimals > 18) {
-            return res.status(400).json({ error: "Invalid Token Decimals. Must be between 0 and 18." });
-        }
+        // Convert input values to blockchain-expected format
+        const tokenNameHex = Buffer.from(tokenName).toString('hex');
+        const tokenTickerHex = Buffer.from(tokenTicker).toString('hex');
+        const initialSupplyHex = BigInt(initialSupply) * BigInt(10 ** tokenDecimals);
+        const decimalsHex = tokenDecimals.toString(16);
 
-        // Step 2: Scale Initial Supply by Token Decimals
-        const initialSupplyBlockchain = BigInt(initialSupply) * BigInt(10 ** tokenDecimals);
+        // Optional permissions (setting to "false" for now)
+        const canFreeze = "false";
+        const canWipe = "false";
+        const canPause = "false";
+        const canChangeOwner = "false";
+        const canUpgrade = "false";
+        const canAddSpecialRoles = "false";
 
-        // Step 3: Construct Smart Contract Call
-        const scAddress = "erd1qqqqqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzllls8a5w6u"; // ESDT Creator SC
-        const signer = UserSigner.fromPem(walletPem);
-        const senderAddress = signer.getAddress();
-        const senderNonce = (await provider.getAccount(senderAddress)).nonce;
-
+        // Construct transaction payload
         const txPayload = new TransactionPayload(
-            `issue@${Buffer.from(tokenName).toString("hex")}@${Buffer.from(tokenTicker).toString("hex")}@${initialSupplyBlockchain.toString(16)}@${tokenDecimals.toString(16)}`
+            `issue@${tokenNameHex}@${tokenTickerHex}@${initialSupplyHex.toString(16)}@${decimalsHex}@${Buffer.from("canFreeze").toString('hex')}@${Buffer.from(canFreeze).toString('hex')}@${Buffer.from("canWipe").toString('hex')}@${Buffer.from(canWipe).toString('hex')}@${Buffer.from("canPause").toString('hex')}@${Buffer.from(canPause).toString('hex')}@${Buffer.from("canChangeOwner").toString('hex')}@${Buffer.from(canChangeOwner).toString('hex')}@${Buffer.from("canUpgrade").toString('hex')}@${Buffer.from(canUpgrade).toString('hex')}@${Buffer.from("canAddSpecialRoles").toString('hex')}@${Buffer.from(canAddSpecialRoles).toString('hex')}`
         );
 
+        // Initialize signer
+        const signer = UserSigner.fromPem(walletPem);
+        const senderAddress = signer.getAddress();
+        const receiverAddress = new Address("erd1qqqqqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzllls8a5w6u"); // Smart Contract
+        const senderNonce = (await provider.getAccount(senderAddress)).nonce;
+
+        // Construct the transaction
         const tx = new Transaction({
             nonce: senderNonce,
-            receiver: new Address(scAddress),
+            receiver: receiverAddress,
             sender: senderAddress,
-            value: "50000000000000000", // 0.05 EGLD token creation fee
+            value: "50000000000000000", // Fixed ESDT creation cost
             gasLimit: BigInt(60000000),
             data: txPayload,
             chainID: '1',
         });
 
-        // Step 4: Sign and Send Transaction
+        // Sign and send the transaction
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Step 5: Poll for transaction confirmation
+        // Poll for transaction confirmation
         const finalStatus = await checkTransactionStatus(txHash.toString());
 
         res.json({
-            message: `ESDT token creation initiated for ${tokenName} (${tokenTicker}).`,
+            message: 'ESDT created successfully.',
             tokenName,
             tokenTicker,
             initialSupply,
             tokenDecimals,
             transactionHash: txHash.toString(),
-            usageFeeHash: req.usageFeeHash, // Attach transaction hash of the usage fee deduction
             status: finalStatus,
         });
-
     } catch (error) {
-        console.error('Error executing ESDT creation via Warp:', error);
+        console.error("Error executing ESDT creation:", error);
         res.status(500).json({ error: error.message });
     }
 });
+
 
 
 app.use('/admin', adminRoutes);
