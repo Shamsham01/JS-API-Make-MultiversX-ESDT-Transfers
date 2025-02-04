@@ -841,7 +841,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
 });
 
 // ESDT Creator Warp Endpoint
-app.post('/warps/esdt-create', checkToken, handleUsageFee, async (req, res) => {
+app.post('/execute/esdt-create', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { walletPem, tokenName, tokenTicker, initialSupply, tokenDecimals } = req.body;
 
