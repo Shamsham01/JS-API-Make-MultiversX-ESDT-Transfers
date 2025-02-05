@@ -1,11 +1,3 @@
-import {
-    BytesValue,
-    BigUIntValue,
-    U32Value,
-    ContractCallPayloadBuilder,
-    ContractFunction
-} from '@multiversx/sdk-core';
-
 const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
@@ -844,82 +836,6 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
         });
     } catch (error) {
         console.error('Error during rewards distribution:', error.message);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// ESDT Creator Endpoint
-app.post('/execute/esdt-create', checkToken, async (req, res) => {
-    try {
-        const { walletPem, tokenName, tokenTicker, initialSupply, tokenDecimals, tokenProperties = [] } = req.body;
-
-        if (!walletPem || !tokenName || !tokenTicker || initialSupply === undefined || tokenDecimals === undefined) {
-            return res.status(400).json({ error: "Missing required parameters" });
-        }
-
-        console.log(`Creating ESDT: ${tokenName} (${tokenTicker}), Supply: ${initialSupply}, Decimals: ${tokenDecimals}`);
-
-        // Initialize signer
-        const signer = UserSigner.fromPem(walletPem);
-        const senderAddress = signer.getAddress();
-        const receiverAddress = new Address("erd1qqqqqqqqqqqqqqqpqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqzllls8a5w6u"); // Smart Contract
-        const senderNonce = (await provider.getAccount(senderAddress)).nonce;
-
-        // Convert input values to blockchain-expected format
-        const args = [
-            BytesValue.fromUTF8(tokenName),                  // Token Name
-            BytesValue.fromUTF8(tokenTicker),                // Token Ticker
-            new BigUIntValue(BigInt(initialSupply) * BigInt(10 ** tokenDecimals)), // Initial Supply (scaled by decimals)
-            new U32Value(tokenDecimals)                      // Token Decimals
-        ];
-
-        // Add Token Properties dynamically
-        const esdtProperties = [
-            "canFreeze", "canWipe", "canPause",
-            "canChangeOwner", "canUpgrade", "canAddSpecialRoles"
-        ];
-
-        for (const property of esdtProperties) {
-            const isEnabled = tokenProperties.includes(property) ? "true" : "false";
-            args.push(BytesValue.fromUTF8(property));
-            args.push(BytesValue.fromUTF8(isEnabled));
-        }
-
-        // Construct transaction payload
-        const data = new ContractCallPayloadBuilder()
-            .setFunction(new ContractFunction('issue'))
-            .setArgs(args)
-            .build();
-
-        // Construct the transaction
-        const tx = new Transaction({
-            nonce: senderNonce,
-            receiver: receiverAddress,
-            sender: senderAddress,
-            value: "50000000000000000", // Fixed ESDT creation cost (0.05 EGLD)
-            gasLimit: BigInt(60000000),
-            data,
-            chainID: '1',
-        });
-
-        // Sign and send the transaction
-        await signer.sign(tx);
-        const txHash = await provider.sendTransaction(tx);
-
-        // Poll for transaction confirmation
-        const finalStatus = await checkTransactionStatus(txHash.toString());
-
-        res.json({
-            message: 'ESDT created successfully.',
-            tokenName,
-            tokenTicker,
-            initialSupply,
-            tokenDecimals,
-            transactionHash: txHash.toString(),
-            status: finalStatus,
-        });
-    } catch (error) {
-        console.error("Error executing ESDT creation:", error);
         res.status(500).json({ error: error.message });
     }
 });
