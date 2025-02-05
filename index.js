@@ -843,7 +843,7 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
 // ESDT Creator Endpoint
 app.post('/execute/esdt-create', checkToken, async (req, res) => {
     try {
-        const { walletPem, tokenName, tokenTicker, initialSupply, tokenDecimals } = req.body;
+        const { walletPem, tokenName, tokenTicker, initialSupply, tokenDecimals, canFreeze, canWipe, canPause, canChangeOwner, canUpgrade, canAddSpecialRoles } = req.body;
 
         if (!walletPem || !tokenName || !tokenTicker || initialSupply === undefined || tokenDecimals === undefined) {
             return res.status(400).json({ error: "Missing required parameters" });
@@ -851,24 +851,22 @@ app.post('/execute/esdt-create', checkToken, async (req, res) => {
 
         console.log(`Creating ESDT: ${tokenName} (${tokenTicker}), Supply: ${initialSupply}, Decimals: ${tokenDecimals}`);
 
-        // Convert input values to blockchain-expected format
-        const tokenNameHex = Buffer.from(tokenName).toString('hex');
-        const tokenTickerHex = Buffer.from(tokenTicker).toString('hex');
-        const initialSupplyHex = BigInt(initialSupply) * BigInt(10 ** tokenDecimals);
-        const decimalsHex = tokenDecimals.toString(16);
+        // Convert input values to blockchain-expected HEX format
+        const tokenNameHex = Buffer.from(tokenName, 'utf8').toString('hex');
+        const tokenTickerHex = Buffer.from(tokenTicker, 'utf8').toString('hex');
+        const initialSupplyHex = BigInt(initialSupply * (10 ** tokenDecimals)).toString(16).padStart(16, '0');  // Ensure correct hex padding
+        const decimalsHex = tokenDecimals.toString(16).padStart(2, '0');  // Ensure even-length hex
 
-        // Optional permissions (setting to "false" for now)
-        const canFreeze = "false";
-        const canWipe = "false";
-        const canPause = "false";
-        const canChangeOwner = "false";
-        const canUpgrade = "false";
-        const canAddSpecialRoles = "false";
+        // Construct transaction payload using existing encoding method
+        const txPayload = `issue@${tokenNameHex}@${tokenTickerHex}@${initialSupplyHex}@${decimalsHex}`
+            + `@${Buffer.from('canFreeze', 'utf8').toString('hex')}@${Buffer.from(canFreeze ? 'true' : 'false', 'utf8').toString('hex')}`
+            + `@${Buffer.from('canWipe', 'utf8').toString('hex')}@${Buffer.from(canWipe ? 'true' : 'false', 'utf8').toString('hex')}`
+            + `@${Buffer.from('canPause', 'utf8').toString('hex')}@${Buffer.from(canPause ? 'true' : 'false', 'utf8').toString('hex')}`
+            + `@${Buffer.from('canChangeOwner', 'utf8').toString('hex')}@${Buffer.from(canChangeOwner ? 'true' : 'false', 'utf8').toString('hex')}`
+            + `@${Buffer.from('canUpgrade', 'utf8').toString('hex')}@${Buffer.from(canUpgrade ? 'true' : 'false', 'utf8').toString('hex')}`
+            + `@${Buffer.from('canAddSpecialRoles', 'utf8').toString('hex')}@${Buffer.from(canAddSpecialRoles ? 'true' : 'false', 'utf8').toString('hex')}`;
 
-        // Construct transaction payload
-        const txPayload = new TransactionPayload(
-            `issue@${tokenNameHex}@${tokenTickerHex}@${initialSupplyHex.toString(16)}@${decimalsHex}@${Buffer.from("canFreeze").toString('hex')}@${Buffer.from(canFreeze).toString('hex')}@${Buffer.from("canWipe").toString('hex')}@${Buffer.from(canWipe).toString('hex')}@${Buffer.from("canPause").toString('hex')}@${Buffer.from(canPause).toString('hex')}@${Buffer.from("canChangeOwner").toString('hex')}@${Buffer.from(canChangeOwner).toString('hex')}@${Buffer.from("canUpgrade").toString('hex')}@${Buffer.from(canUpgrade).toString('hex')}@${Buffer.from("canAddSpecialRoles").toString('hex')}@${Buffer.from(canAddSpecialRoles).toString('hex')}`
-        );
+        console.log("Transaction Payload:", txPayload);  // Debugging payload before sending transaction
 
         // Initialize signer
         const signer = UserSigner.fromPem(walletPem);
@@ -881,9 +879,9 @@ app.post('/execute/esdt-create', checkToken, async (req, res) => {
             nonce: senderNonce,
             receiver: receiverAddress,
             sender: senderAddress,
-            value: "50000000000000000", // Fixed ESDT creation cost
+            value: "50000000000000000", // Fixed ESDT creation cost (0.05 EGLD)
             gasLimit: BigInt(60000000),
-            data: txPayload,
+            data: new TransactionPayload(txPayload),
             chainID: '1',
         });
 
@@ -908,8 +906,6 @@ app.post('/execute/esdt-create', checkToken, async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 });
-
-
 
 app.use('/admin', adminRoutes);
 
