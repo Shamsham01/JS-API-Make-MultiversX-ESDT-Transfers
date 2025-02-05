@@ -1,3 +1,11 @@
+import {
+    BytesValue,
+    BigUIntValue,
+    U32Value,
+    ContractCallPayloadBuilder,
+    ContractFunction
+} from '@multiversx/sdk-core';
+
 const express = require('express');
 const bodyParser = require('body-parser');
 const fetch = require('node-fetch');
