@@ -1,5 +1,6 @@
 {
   "name": "javascript-api",
+  "type": "commonjs",
   "version": "1.0.1",
   "description": "Node.js API for executing transactions on MultiversX blockchain.",
   "main": "index.js",
