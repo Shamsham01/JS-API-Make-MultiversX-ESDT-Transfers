@@ -5,6 +5,9 @@ const { Address, Token, TokenTransfer, TransferTransactionsFactory, Transactions
 const { ProxyNetworkProvider } = require('@multiversx/sdk-network-providers');
 const { UserSigner } = require('@multiversx/sdk-wallet');
 const BigNumber = require('bignumber.js');
+const WebSocket = require('ws'); // Add WebSocket library
+const axios = require('axios'); // Add axios for webhook calls
+
 const app = express();
 const PORT = process.env.PORT || 10000;
 const SECURE_TOKEN = process.env.SECURE_TOKEN;  // Secure Token for authorization
@@ -12,10 +15,11 @@ const ADMIN_TOKEN = process.env.ADMIN_TOKEN;  // Admin Token for whitelist manag
 const USAGE_FEE = 500; // Fee in REWARD tokens
 const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
-const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make webhook URL
+const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make webhook URL for whitelist
+const MAKE_WEBHOOK_URL = "https://hook.make.com/your-webhook-url"; // Replace with your make.com webhook URL for events
 const adminRoutes = require('./admin');
 
-// Set up the network provider for MultiversX (mainnet or devnet)
+// Set up the network provider for MultiversX (mainnet)
 const provider = new ProxyNetworkProvider("https://gateway.multiversx.com", { clientName: "javascript-api" });
 // Helper function to wait for a specified time
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -24,6 +28,7 @@ const fs = require('fs');
 const path = require('path');
 
 const whitelistFilePath = path.join(__dirname, 'whitelist.json');
+const usersFilePath = path.join(__dirname, 'users.json');
 
 // Middleware to check admin authorization token
 const checkAdminToken = (req, res, next) => {
@@ -34,7 +39,6 @@ const checkAdminToken = (req, res, next) => {
         res.status(401).json({ error: 'Unauthorized: Invalid Admin Token' });
     }
 };
-
 
 // Load the whitelist file
 const loadWhitelist = () => {
@@ -52,7 +56,7 @@ const isWhitelisted = (walletAddress) => {
 };
 
 const saveWhitelist = (whitelist) => {
-    fs.writeFileSync(whitelistFilePath, JSON.stringify(whitelist, null, 2)); // Proper formatting with indentation
+    fs.writeFileSync(whitelistFilePath, JSON.stringify(whitelist, null, 2));
 };
 
 const sendWebhookUpdate = async (whitelist) => {
@@ -79,7 +83,6 @@ const sendWebhookUpdate = async (whitelist) => {
         throw error;
     }
 };
-
 
 app.use(bodyParser.json());  // Support JSON-encoded bodies
 
@@ -190,7 +193,6 @@ const pollTransactionStatuses = async (txHashes, batchSize = 10, delay = 10000, 
     return results;
 };
 
-
 // --------------- Gas Calculation Functions --------------- //
 
 // Function to calculate total gas limit for NFTs/scCalls (15,000,000 gas per asset)
@@ -209,7 +211,6 @@ const calculateEsdtGasLimit = () => {
 };
 
 // --------------- Authorization Endpoint --------------- //
-const usersFilePath = path.join(__dirname, 'users.json');
 
 // Helper to log user activity
 const logUserActivity = (walletAddress) => {
@@ -280,7 +281,6 @@ app.post('/admin/addToWhitelist', checkAdminToken, async (req, res) => {
     }
 });
 
-
 const sendUsageFee = async (pemContent) => {
     const signer = UserSigner.fromPem(pemContent);
     const senderAddress = signer.getAddress();
@@ -345,7 +345,6 @@ const handleUsageFee = async (req, res, next) => {
 const convertEGLDToWEI = (amount) => {
     return new BigNumber(amount).multipliedBy(new BigNumber(10).pow(18)).toFixed(0);
 };
-
 
 // --------------- EGLD Transfer Logic --------------- //
 const sendEgld = async (pemContent, recipient, amount) => {
@@ -459,24 +458,13 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
 
-        // Derive the wallet address from the PEM content
-        const deriveWalletAddressFromPem = (pemContent) => {
-            const signer = UserSigner.fromPem(pemContent);
-            return signer.getAddress().toString(); // Derive and return the wallet address
-        };
-
         const walletAddress = deriveWalletAddressFromPem(pemContent);
-
-        // Log the derived wallet address
         console.log(`Derived wallet address: ${walletAddress}`);
 
-        // Perform the ESDT transfer
         const result = await sendEsdtToken(pemContent, recipient, amount, tokenTicker);
-
-        // Return the result along with the derived wallet address
         res.json({
             message: "ESDT transfer executed successfully.",
-            walletAddress: walletAddress, // Include the wallet address in the response
+            walletAddress: walletAddress,
             result: result,
         });
     } catch (error) {
@@ -498,25 +486,21 @@ const sendMetaEsdt = async (pemContent, recipient, tokenIdentifier, nonce, amoun
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Construct data payload for Meta-ESDT Transfer
         const dataField = `ESDTNFTTransfer@${Buffer.from(tokenIdentifier).toString('hex')}@${toHex(nonce)}@${toHex(amount)}`;
 
-        // Create the transaction
         const tx = new Transaction({
             nonce: senderNonce,
             receiver: receiverAddress,
             sender: senderAddress,
             value: '0',
-            gasLimit: BigInt(5000000), // Adjust gas limit if necessary
+            gasLimit: BigInt(5000000),
             data: new TransactionPayload(dataField),
             chainID: '1',
         });
 
-        // Sign and send the transaction
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Check the transaction status
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -531,19 +515,15 @@ app.post('/execute/metaEsdtTransfer', checkToken, handleUsageFee, async (req, re
         const { recipient, tokenIdentifier, nonce, amount } = req.body;
         const pemContent = getPemContent(req);
 
-        // Execute the Meta-ESDT transfer
         const result = await sendMetaEsdt(pemContent, recipient, tokenIdentifier, nonce, amount);
-         res.json({ result, usageFeeHash: req.usageFeeHash });
+        res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing Meta-ESDT transaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-
 // --------------- NFT Transfer Logic --------------- //
-
-// Function to validate amount before conversion to BigInt
 const validateNumberInput = (value, fieldName) => {
     const numValue = Number(value);
     if (isNaN(numValue) || numValue <= 0) {
@@ -552,7 +532,6 @@ const validateNumberInput = (value, fieldName) => {
     return numValue;
 };
 
-// Function to send NFT tokens (no qty required, amount is always 1)
 const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) => {
     try {
         const signer = UserSigner.fromPem(pemContent);
@@ -565,11 +544,8 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Hardcode the amount to 1 for NFTs
         const amount = BigInt(1);
-
-        // Calculate gas limit (no need for qty, so just set base gas limit)
-        const gasLimit = BigInt(calculateNftGasLimit(1));  // Base gas limit for 1 NFT
+        const gasLimit = BigInt(calculateNftGasLimit(1));
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -577,18 +553,17 @@ const sendNftToken = async (pemContent, recipient, tokenIdentifier, tokenNonce) 
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenIdentifier, nonce: BigInt(tokenNonce) }),
-                    amount: amount  // Always transfer 1 NFT
+                    amount: amount
                 })
             ]
         });
 
         tx.nonce = senderNonce;
-        tx.gasLimit = gasLimit;  // Set dynamic gas limit
+        tx.gasLimit = gasLimit;
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction confirmation using polling logic
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return finalStatus;
     } catch (error) {
@@ -604,19 +579,16 @@ app.post('/execute/nftTransfer', checkToken, handleUsageFee, async (req, res) =>
         const pemContent = getPemContent(req);
 
         const result = await sendNftToken(pemContent, recipient, tokenIdentifier, tokenNonce);
-         res.json({ result, usageFeeHash: req.usageFeeHash });
+        res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing NFT transaction:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-
 // --------------- SFT Transfer Logic --------------- //
-
-// Function to validate amount before conversion to BigInt
 const validateAmountInput = (value, fieldName) => {
-    console.log(`Validating ${fieldName}:`, value);  // Log the input value for debugging
+    console.log(`Validating ${fieldName}:`, value);
     const numValue = Number(value);
     if (isNaN(numValue) || numValue <= 0) {
         throw new Error(`Invalid ${fieldName} provided. It must be a positive number.`);
@@ -624,10 +596,8 @@ const validateAmountInput = (value, fieldName) => {
     return numValue;
 };
 
-// Function to send SFT tokens with dynamic gas limit
 const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) => {
     try {
-        // Validate amount
         const validAmount = validateAmountInput(amount, 'amount');
 
         const signer = UserSigner.fromPem(pemContent);
@@ -637,14 +607,12 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
         const accountOnNetwork = await provider.getAccount(senderAddress);
         const accountNonce = accountOnNetwork.nonce;
 
-        // Convert amount to BigInt (SFTs typically have 0 decimals)
         const adjustedAmount = BigInt(validAmount);
 
         const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
         const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-        // Calculate total gas limit based on amount
-        const gasLimit = BigInt(calculateSftGasLimit(validAmount));  // Use amount for gas calculation
+        const gasLimit = BigInt(calculateSftGasLimit(validAmount));
 
         const tx = factory.createTransactionForESDTTokenTransfer({
             sender: senderAddress,
@@ -652,18 +620,17 @@ const sendSftToken = async (pemContent, recipient, amount, tokenTicker, nonce) =
             tokenTransfers: [
                 new TokenTransfer({
                     token: new Token({ identifier: tokenTicker, nonce: BigInt(nonce) }),
-                    amount: adjustedAmount  // Ensure BigInt usage for amount
+                    amount: adjustedAmount
                 })
             ]
         });
 
         tx.nonce = accountNonce;
-        tx.gasLimit = gasLimit;  // Set dynamic gas limit
+        tx.gasLimit = gasLimit;
 
         await signer.sign(tx);
         const txHash = await provider.sendTransaction(tx);
 
-        // Wait for transaction confirmation using polling logic
         const finalStatus = await checkTransactionStatus(txHash.toString());
         return { txHash: txHash.toString(), status: finalStatus };
     } catch (error) {
@@ -679,7 +646,7 @@ app.post('/execute/sftTransfer', checkToken, handleUsageFee, async (req, res) =>
         const pemContent = getPemContent(req);
 
         const result = await sendSftToken(pemContent, recipient, amount, tokenTicker, tokenNonce);
-         res.json({ result, usageFeeHash: req.usageFeeHash });
+        res.json({ result, usageFeeHash: req.usageFeeHash });
     } catch (error) {
         console.error('Error executing SFT transaction:', error);
         res.status(500).json({ error: error.message });
@@ -697,9 +664,8 @@ const executeFreeNftMintAirdrop = async (pemContent, scAddress, endpoint, receiv
         const qtyHex = BigInt(qty).toString(16).padStart(2, '0');
         const dataField = `${endpoint}@${receiverHex}@${qtyHex}`;
 
-        // Dynamic gas calculation: base gas + additional gas per mint
-        const baseGas = BigInt(17000000); // Base gas for single mint
-        const additionalGasPerMint = BigInt(8000000); // Estimated additional gas per mint
+        const baseGas = BigInt(17000000);
+        const additionalGasPerMint = BigInt(8000000);
         const gasLimit = baseGas + BigInt(qty - 1) * additionalGasPerMint;
 
         const accountOnNetwork = await provider.getAccount(senderAddress);
@@ -749,7 +715,6 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
         const pemContent = getPemContent(req);
         const { uniqueOwnerStats, tokenTicker, baseAmount, multiply } = req.body;
 
-        // Validate inputs
         if (!uniqueOwnerStats || !Array.isArray(uniqueOwnerStats)) {
             return res.status(400).json({ error: 'Invalid owner stats provided.' });
         }
@@ -762,11 +727,10 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
         const accountOnNetwork = await provider.getAccount(senderAddress);
         let currentNonce = accountOnNetwork.nonce;
 
-        const decimals = await getTokenDecimals(tokenTicker); // Get token decimals
-        const multiplierEnabled = multiply === "yes"; // Check if multiplier is enabled
+        const decimals = await getTokenDecimals(tokenTicker);
+        const multiplierEnabled = multiply === "yes";
         const txHashes = [];
 
-        // Helper function to create a transaction
         const createTransaction = (owner, tokensCount, nonce) => {
             const adjustedAmount = multiplierEnabled
                 ? convertAmountToBlockchainValue(baseAmount * tokensCount, decimals)
@@ -788,12 +752,11 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
             });
 
             tx.nonce = nonce;
-            tx.gasLimit = BigInt(500000); // Fixed Gas Limit
+            tx.gasLimit = BigInt(500000);
 
             return tx;
         };
 
-        // Step 1: Sign and send all transactions in parallel batches
         for (let i = 0; i < uniqueOwnerStats.length; i += 3) {
             const batch = uniqueOwnerStats.slice(i, i + 3);
             const batchPromises = batch.map((ownerData, index) => {
@@ -813,26 +776,22 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
                 }));
             });
 
-            // Process batch
             const batchResults = await Promise.all(batchPromises);
             txHashes.push(...batchResults);
 
-            // Throttle to 3 transactions per second
             if (i + 3 < uniqueOwnerStats.length) {
-                await wait(1000); // 1-second delay for next batch
+                await wait(1000);
             }
 
-            currentNonce += batch.length; // Increment nonce for next batch
+            currentNonce += batch.length;
         }
 
-        // Step 2: Poll transaction statuses in batches with retries
         const statusResults = await pollTransactionStatuses(txHashes);
 
-        // Return transaction results with UsageFee hash
         res.json({
             message: 'Rewards distribution completed.',
-            usageFeeHash: req.usageFeeHash, // Include the UsageFee transaction hash
-            results: statusResults, // Include results from the rewards distribution
+            usageFeeHash: req.usageFeeHash,
+            results: statusResults,
         });
     } catch (error) {
         console.error('Error during rewards distribution:', error.message);
@@ -840,9 +799,99 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
     }
 });
 
+// --------------- WebSocket Listener for MultiversX Events --------------- //
 
+// Store user-defined filters (from make.com)
+let eventFilters = {};
+
+// API endpoint to receive event filters from make.com
+app.post('/subscribe/events', checkToken, (req, res) => {
+    try {
+        eventFilters = req.body; // e.g., { address: "erd1...", direction: "from", function_type: "ESDTTransfer", asset_identifier: "WEED-123", threshold: 1000 }
+        console.log('Event filters updated:', eventFilters);
+        res.status(200).json({ message: 'Subscribed to MultiversX events' });
+    } catch (error) {
+        console.error('Error subscribing to events:', error.message);
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// Initialize WebSocket connection to MultiversX
+const ws = new WebSocket('wss://gateway.multiversx.com/ws');
+
+ws.on('open', () => {
+    console.log('Connected to MultiversX WebSocket');
+    ws.send(JSON.stringify({ method: 'subscribe', topic: 'transaction' })); // Subscribe to all transactions
+});
+
+ws.on('message', async (data) => {
+    try {
+        const event = JSON.parse(data);
+        const tx = event.data?.transaction;
+        if (!tx || !eventFilters || Object.keys(eventFilters).length === 0) return;
+
+        // Decode transaction data (Base64) to check function type and asset identifier
+        const dataStr = tx.data ? Buffer.from(tx.data, 'base64').toString() : '';
+        const sender = tx.sender;
+        const receiver = tx.receiver;
+
+        // Match address (wallet or smart contract)
+        const matchesAddress = !eventFilters.address || 
+            [sender, receiver].includes(eventFilters.address) ||
+            (tx.smartContractResults?.address === eventFilters.address);
+
+        // Match direction
+        let matchesDirection = true;
+        if (eventFilters.direction === 'from' && sender !== eventFilters.address) matchesDirection = false;
+        if (eventFilters.direction === 'to' && receiver !== eventFilters.address) matchesDirection = false;
+        if (eventFilters.direction === 'both' && !([sender, receiver].includes(eventFilters.address))) matchesDirection = false;
+
+        // Match function type
+        const matchesFunction = !eventFilters.function_type || 
+            dataStr.includes(eventFilters.function_type);
+
+        // Match asset identifier
+        const matchesAsset = !eventFilters.asset_identifier || 
+            (dataStr.includes(eventFilters.asset_identifier) || 
+             (tx.value && eventFilters.asset_identifier === 'EGLD'));
+
+        // Match threshold (for amounts)
+        let matchesThreshold = true;
+        if (eventFilters.threshold) {
+            const amount = tx.value ? parseInt(tx.value) : // EGLD
+                (dataStr.match(/@(\d+)/) ? parseInt(dataStr.match(/@(\d+)/)[1]) : 0); // ESDT/NFT amount
+            matchesThreshold = amount >= eventFilters.threshold;
+        }
+
+        // If all filters match, send event to make.com webhook
+        if (matchesAddress && matchesDirection && matchesFunction && matchesAsset && matchesThreshold) {
+            console.log('Event matched:', tx);
+            await axios.post(MAKE_WEBHOOK_URL, {
+                event: tx,
+                timestamp: new Date().toISOString()
+            });
+        }
+    } catch (error) {
+        console.error('Error processing WebSocket event:', error.message);
+    }
+});
+
+ws.on('error', (err) => console.error('WebSocket error:', err));
+
+ws.on('close', () => {
+    console.log('WebSocket connection closed. Attempting to reconnect...');
+    setTimeout(() => {
+        ws.reconnect(); // Attempt to reconnect (you may need to implement reconnection logic)
+    }, 5000);
+});
+
+// Helper function to convert number to hex (used in Meta-ESDT)
+const toHex = (num) => {
+    return BigInt(num).toString(16).padStart(2, '0');
+};
+
+// Admin routes
 app.use('/admin', adminRoutes);
-
 
 // Start the server
 app.listen(PORT, () => {
