@@ -12,11 +12,11 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const SECURE_TOKEN = process.env.SECURE_TOKEN;  // Secure Token for authorization
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;  // Admin Token for whitelist management
+const USAGE_FEE = 100; // Fee in REWARD tokens
 const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
 const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make webhook URL for whitelist
 const MAKE_WEBHOOK_URL = "https://hook.make.com/your-webhook-url"; // Replace with your make.com webhook URL for events
-const FIXED_USD_FEE = 0.03; // Fixed fee in USD (3 cents)
 const adminRoutes = require('./admin');
 
 // Set up the network provider for MultiversX (mainnet)
@@ -37,16 +37,6 @@ const checkAdminToken = (req, res, next) => {
         next();
     } else {
         res.status(401).json({ error: 'Unauthorized: Invalid Admin Token' });
-    }
-};
-
-// Middleware to check authorization token
-const checkToken = (req, res, next) => {
-    const token = req.headers.authorization;
-    if (token === `Bearer ${SECURE_TOKEN}`) {
-        next();
-    } else {
-        res.status(401).json({ error: 'Unauthorized' });
     }
 };
 
@@ -96,6 +86,16 @@ const sendWebhookUpdate = async (whitelist) => {
 
 app.use(bodyParser.json());  // Support JSON-encoded bodies
 
+// Middleware to check authorization token
+const checkToken = (req, res, next) => {
+    const token = req.headers.authorization;
+    if (token === `Bearer ${SECURE_TOKEN}`) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized' });
+    }
+};
+
 // Function to validate and return the PEM content from the request body
 const getPemContent = (req) => {
     const pemContent = req.body.walletPem;
@@ -111,131 +111,234 @@ const deriveWalletAddressFromPem = (pemContent) => {
     return signer.getAddress().toString();
 };
 
-// Helper: Check transaction status with consistent retry logic
-async function checkTransactionStatus(txHash, maxRetries = 20, retryInterval = 3000) {
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      console.log(`Checking transaction ${txHash} status (attempt ${i + 1}/${maxRetries})...`);
-      
-      const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
-      const response = await fetch(txStatusUrl);
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          // Transaction not yet visible, retry after interval
-          await new Promise(resolve => setTimeout(resolve, retryInterval));
-          continue;
+// Helper function to check transaction status
+const checkTransactionStatus = async (txHash, retries = 40, delay = 5000) => {
+    const txStatusUrl = `https://api.multiversx.com/transactions/${txHash}`;
+
+    for (let i = 0; i < retries; i++) {
+        try {
+            const response = await fetch(txStatusUrl);
+
+            if (!response.ok) {
+                console.warn(`Non-200 response for ${txHash}: ${response.status}`);
+                throw new Error(`HTTP error ${response.status}`);
+            }
+
+            const txStatus = await response.json();
+
+            if (txStatus.status === "success") {
+                return { status: "success", txHash };
+            } else if (txStatus.status === "fail") {
+                return { status: "fail", txHash };
+            }
+
+            console.log(`Transaction ${txHash} still pending, retrying...`);
+        } catch (error) {
+            console.error(`Error fetching transaction ${txHash}: ${error.message}`);
         }
-        throw new Error(`HTTP error ${response.status}`);
-      }
-      
-      const txStatus = await response.json();
-      
-      if (txStatus.status === "success") {
-        console.log(`Transaction ${txHash} completed successfully.`);
-        return { status: "success", txHash };
-      } else if (txStatus.status === "fail" || txStatus.status === "invalid") {
-        console.log(`Transaction ${txHash} failed with status: ${txStatus.status}`);
-        return { 
-          status: "fail", 
-          txHash, 
-          details: txStatus.error || txStatus.receipt?.data || 'No error details provided' 
-        };
-      }
-      
-      // Transaction still pending, retry after interval
-      await new Promise(resolve => setTimeout(resolve, retryInterval));
+
+        await wait(delay);
+    }
+
+    throw new Error(
+        `Transaction ${txHash} status could not be determined after ${retries} retries.`
+    );
+};
+
+// Helper function to poll transaction statuses with retries
+const pollTransactionStatuses = async (txHashes, batchSize = 10, delay = 10000, maxRetries = 10) => {
+    const results = [];
+    const pendingTransactions = [...txHashes]; // Copy of all transaction hashes
+
+    // Wait 7 seconds before starting to poll (to account for block time)
+    await wait(7000);
+
+    let retryCount = 0;
+    while (pendingTransactions.length > 0 && retryCount < maxRetries) {
+        const batch = pendingTransactions.splice(0, batchSize); // Take the next batch
+        const batchPromises = batch.map(async ({ owner, txHash }) => {
+            try {
+                const status = await checkTransactionStatus(txHash);
+                if (status.status === "success" || status.status === "fail") {
+                    return { owner, txHash, status: status.status };
+                } else {
+                    // Transaction is still pending, add it back to the list
+                    pendingTransactions.push({ owner, txHash });
+                    return null; // Skip this result for now
+                }
+            } catch (error) {
+                return { owner, txHash, error: error.message, status: 'failed' };
+            }
+        });
+
+        // Process the current batch
+        const batchResults = await Promise.all(batchPromises);
+        const completedResults = batchResults.filter(result => result !== null); // Filter out pending transactions
+        results.push(...completedResults);
+
+        // If there are still pending transactions, wait before the next batch
+        if (pendingTransactions.length > 0) {
+            await wait(delay); // Wait 10 seconds before the next batch
+            retryCount++;
+        }
+    }
+
+    // Handle any remaining pending transactions after max retries
+    if (pendingTransactions.length > 0) {
+        pendingTransactions.forEach(({ owner, txHash }) => {
+            results.push({ owner, txHash, error: 'Max retries reached', status: 'pending' });
+        });
+    }
+
+    return results;
+};
+
+// --------------- Gas Calculation Functions --------------- //
+
+// Function to calculate total gas limit for NFTs/scCalls (15,000,000 gas per asset)
+const calculateNftGasLimit = (qty) => {
+    return 15000000 * qty;
+};
+
+// Function to calculate total gas limit for SFTs (500,000 gas per asset)
+const calculateSftGasLimit = (qty) => {
+    return 500000 * qty;
+};
+
+// Function to calculate gas limit for ESDT transfers
+const calculateEsdtGasLimit = () => {
+    return BigInt(500000);  // Base gas per ESDT transaction
+};
+
+// --------------- Authorization Endpoint --------------- //
+
+// Helper to log user activity
+const logUserActivity = (walletAddress) => {
+    const currentDate = new Date().toISOString();
+
+    // Load existing users
+    let usersData = [];
+    if (fs.existsSync(usersFilePath)) {
+        const rawData = fs.readFileSync(usersFilePath);
+        usersData = JSON.parse(rawData);
+    }
+
+    // Append the new activity
+    usersData.push({
+        walletAddress: walletAddress,
+        authorizedAt: currentDate,
+    });
+
+    // Save back to file
+    fs.writeFileSync(usersFilePath, JSON.stringify(usersData, null, 2));
+    console.log(`User activity logged: ${walletAddress} at ${currentDate}`);
+};
+
+// Update `/execute/authorize` endpoint
+app.post('/execute/authorize', checkToken, (req, res) => {
+    try {
+        const pemContent = getPemContent(req);
+        const walletAddress = deriveWalletAddressFromPem(pemContent);
+
+        // Log the user activity
+        logUserActivity(walletAddress);
+
+        // Respond with a success message
+        res.json({ message: "Authorization Successful", walletAddress });
     } catch (error) {
-      console.error(`Error checking transaction ${txHash}: ${error.message}`);
-      // Continue retrying even after fetch errors
-      await new Promise(resolve => setTimeout(resolve, retryInterval));
+        console.error('Error in authorization:', error.message);
+        res.status(400).json({ error: error.message });
     }
-  }
-  
-  // Max retries reached without definitive status
-  console.log(`Transaction ${txHash} status undetermined after ${maxRetries} retries`);
-  return { status: "pending", txHash };
-}
+});
 
-// Helper: Calculate dynamic usage fee based on REWARD price
-const calculateDynamicUsageFee = async () => {
-  const rewardPrice = await getRewardPrice();
-  
-  if (rewardPrice <= 0) {
-    throw new Error('Invalid REWARD token price');
-  }
+app.post('/admin/addToWhitelist', checkAdminToken, async (req, res) => {
+    try {
+        const { walletAddress, label, whitelistStart } = req.body;
 
-  const rewardAmount = new BigNumber(FIXED_USD_FEE).dividedBy(rewardPrice);
-  const decimals = await getTokenDecimals(REWARD_TOKEN);
-  
-  // Ensure the amount is not too small or too large
-  if (!rewardAmount.isFinite() || rewardAmount.isZero()) {
-    throw new Error('Invalid usage fee calculation');
-  }
+        if (!walletAddress || !label || !whitelistStart) {
+            return res.status(400).json({ error: 'Invalid data. walletAddress, label, and whitelistStart are required.' });
+        }
 
-  return convertAmountToBlockchainValue(rewardAmount, decimals);
-};
+        const whitelist = loadWhitelist();
+        const existingWallet = whitelist.find(entry => entry.walletAddress === walletAddress);
 
-// Helper: Send usage fee transaction
+        if (existingWallet) {
+            return res.status(400).json({ error: 'Wallet address is already whitelisted.' });
+        }
+
+        // Add new entry to whitelist
+        const newEntry = { walletAddress, label, whitelistStart };
+        whitelist.push(newEntry);
+        saveWhitelist(whitelist);
+
+        // Trigger webhook with updated whitelist
+        await sendWebhookUpdate(whitelist);
+
+        res.json({ message: 'Wallet added to whitelist and webhook triggered successfully.' });
+    } catch (error) {
+        console.error('Error adding to whitelist:', error.message);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 const sendUsageFee = async (pemContent) => {
-  const signer = UserSigner.fromPem(pemContent);
-  const senderAddress = signer.getAddress();
-  const receiverAddress = new Address(TREASURY_WALLET);
+    const signer = UserSigner.fromPem(pemContent);
+    const senderAddress = signer.getAddress();
+    const receiverAddress = new Address(TREASURY_WALLET);
 
-  const accountOnNetwork = await provider.getAccount(senderAddress);
-  const nonce = accountOnNetwork.nonce;
+    const accountOnNetwork = await provider.getAccount(senderAddress);
+    const nonce = accountOnNetwork.nonce;
 
-  // Calculate dynamic fee
-  const dynamicFeeAmount = await calculateDynamicUsageFee();
+    const decimals = await getTokenDecimals(REWARD_TOKEN);
+    const convertedAmount = convertAmountToBlockchainValue(USAGE_FEE, decimals);
 
-  const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
-  const factory = new TransferTransactionsFactory({ config: factoryConfig });
+    const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
+    const factory = new TransferTransactionsFactory({ config: factoryConfig });
 
-  const tx = factory.createTransactionForESDTTokenTransfer({
-    sender: senderAddress,
-    receiver: receiverAddress,
-    tokenTransfers: [
-      new TokenTransfer({
-        token: new Token({ identifier: REWARD_TOKEN }),
-        amount: BigInt(dynamicFeeAmount),
-      }),
-    ],
-  });
+    const tx = factory.createTransactionForESDTTokenTransfer({
+        sender: senderAddress,
+        receiver: receiverAddress,
+        tokenTransfers: [
+            new TokenTransfer({
+                token: new Token({ identifier: REWARD_TOKEN }),
+                amount: BigInt(convertedAmount),
+            }),
+        ],
+    });
 
-  tx.nonce = nonce;
-  tx.gasLimit = BigInt(500000);
+    tx.nonce = nonce;
+    tx.gasLimit = BigInt(500000);
 
-  await signer.sign(tx);
-  const txHash = await provider.sendTransaction(tx);
+    await signer.sign(tx);
+    const txHash = await provider.sendTransaction(tx);
 
-  // Check transaction status with retries
-  const status = await checkTransactionStatus(txHash.toString());
-  if (status.status !== "success") {
-    throw new Error(`Usage fee transaction failed: ${status.details || 'Unknown reason'}`);
-  }
-  return txHash.toString();
+    // Poll for transaction confirmation
+    const status = await checkTransactionStatus(txHash.toString());
+    if (status.status !== "success") {
+        throw new Error('UsageFee transaction failed. Ensure sufficient REWARD tokens are available.');
+    }
+    return txHash.toString();
 };
 
-// Middleware: Handle usage fee
 const handleUsageFee = async (req, res, next) => {
-  try {
-    const pemContent = getPemContent(req);
-    const walletAddress = deriveWalletAddressFromPem(pemContent);
+    try {
+        const pemContent = getPemContent(req);
+        const walletAddress = deriveWalletAddressFromPem(pemContent);
 
-    // Check if the wallet is whitelisted
-    if (isWhitelisted(walletAddress)) {
-      console.log(`Wallet ${walletAddress} is whitelisted. Skipping usage fee.`);
-      next(); // Skip the usage fee and proceed
-      return;
+        // Check if the wallet is whitelisted
+        if (isWhitelisted(walletAddress)) {
+            console.log(`Wallet ${walletAddress} is whitelisted. Skipping usage fee.`);
+            next(); // Skip the usage fee and proceed
+            return;
+        }
+
+        const txHash = await sendUsageFee(pemContent);
+        req.usageFeeHash = txHash; // Attach transaction hash to the request
+        next();
+    } catch (error) {
+        console.error('Error processing UsageFee:', error.message);
+        res.status(400).json({ error: error.message });
     }
-
-    const txHash = await sendUsageFee(pemContent);
-    req.usageFeeHash = txHash;
-    next();
-  } catch (error) {
-    console.error('Error processing UsageFee:', error.message);
-    res.status(400).json({ error: error.message });
-  }
 };
 
 // Function to convert EGLD to WEI (1 EGLD = 10^18 WEI)
@@ -700,116 +803,6 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
 
 // Store user-defined filters (from make.com)
 let eventFilters = {};
-let ws = null;
-let reconnectAttempts = 0;
-const MAX_RECONNECT_ATTEMPTS = 5;
-const RECONNECT_INTERVAL = 5000;
-
-// Function to create WebSocket connection
-const createWebSocketConnection = () => {
-    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-        console.log('Max reconnection attempts reached. Stopping WebSocket connection attempts.');
-        return;
-    }
-
-    try {
-        ws = new WebSocket('wss://gateway.multiversx.com/ws');
-
-        ws.on('open', () => {
-            console.log('Connected to MultiversX WebSocket');
-            reconnectAttempts = 0; // Reset reconnect attempts on successful connection
-            // Subscribe to all transactions
-            ws.send(JSON.stringify({
-                method: 'subscribe',
-                topic: 'transactions'
-            }));
-        });
-
-        ws.on('message', async (data) => {
-            try {
-                const event = JSON.parse(data);
-                const tx = event.data?.transaction;
-                if (!tx || !eventFilters || Object.keys(eventFilters).length === 0) return;
-
-                // Decode transaction data (Base64) to check function type and asset identifier
-                const dataStr = tx.data ? Buffer.from(tx.data, 'base64').toString() : '';
-                const sender = tx.sender;
-                const receiver = tx.receiver;
-
-                // Match address (wallet or smart contract)
-                const matchesAddress = !eventFilters.address || 
-                    [sender, receiver].includes(eventFilters.address) ||
-                    (tx.smartContractResults?.address === eventFilters.address);
-
-                // Match direction
-                let matchesDirection = true;
-                if (eventFilters.direction === 'from' && sender !== eventFilters.address) matchesDirection = false;
-                if (eventFilters.direction === 'to' && receiver !== eventFilters.address) matchesDirection = false;
-                if (eventFilters.direction === 'both' && !([sender, receiver].includes(eventFilters.address))) matchesDirection = false;
-
-                // Match function type
-                const matchesFunction = !eventFilters.function_type || 
-                    dataStr.includes(eventFilters.function_type);
-
-                // Match asset identifier
-                const matchesAsset = !eventFilters.asset_identifier || 
-                    (dataStr.includes(eventFilters.asset_identifier) || 
-                     (tx.value && eventFilters.asset_identifier === 'EGLD'));
-
-                // Match threshold (for amounts)
-                let matchesThreshold = true;
-                if (eventFilters.threshold) {
-                    const amount = tx.value ? parseInt(tx.value) : // EGLD
-                        (dataStr.match(/@(\d+)/) ? parseInt(dataStr.match(/@(\d+)/)[1]) : 0); // ESDT/NFT amount
-                    matchesThreshold = amount >= eventFilters.threshold;
-                }
-
-                // If all filters match, send event to make.com webhook
-                if (matchesAddress && matchesDirection && matchesFunction && matchesAsset && matchesThreshold) {
-                    console.log('Event matched:', tx);
-                    await axios.post(MAKE_WEBHOOK_URL, {
-                        event: tx,
-                        timestamp: new Date().toISOString()
-                    });
-                }
-            } catch (error) {
-                console.error('Error processing WebSocket event:', error.message);
-            }
-        });
-
-        ws.on('error', (err) => {
-            console.error('WebSocket error:', err);
-            reconnectAttempts++;
-            console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
-            // Attempt to reconnect after error
-            setTimeout(createWebSocketConnection, RECONNECT_INTERVAL);
-        });
-
-        ws.on('close', () => {
-            console.log('WebSocket connection closed. Attempting to reconnect...');
-            reconnectAttempts++;
-            console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
-            // Attempt to reconnect after connection is closed
-            setTimeout(createWebSocketConnection, RECONNECT_INTERVAL);
-        });
-    } catch (error) {
-        console.error('Error creating WebSocket connection:', error);
-        reconnectAttempts++;
-        console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
-        setTimeout(createWebSocketConnection, RECONNECT_INTERVAL);
-    }
-};
-
-// Initialize WebSocket connection
-createWebSocketConnection();
-
-// Helper function to convert number to hex (used in Meta-ESDT)
-const toHex = (num) => {
-    return BigInt(num).toString(16).padStart(2, '0');
-};
-
-// Admin routes
-app.use('/admin', adminRoutes);
 
 // API endpoint to receive event filters from make.com
 app.post('/subscribe/events', checkToken, (req, res) => {
@@ -823,37 +816,82 @@ app.post('/subscribe/events', checkToken, (req, res) => {
     }
 });
 
-// --------------- Gas Calculation Functions --------------- //
+// Initialize WebSocket connection to MultiversX
+const ws = new WebSocket('wss://gateway.multiversx.com/ws');
 
-// Function to calculate total gas limit for NFTs/scCalls (15,000,000 gas per asset)
-const calculateNftGasLimit = (qty) => {
-    return 15000000 * qty;
-};
+ws.on('open', () => {
+    console.log('Connected to MultiversX WebSocket');
+    ws.send(JSON.stringify({ method: 'subscribe', topic: 'transaction' })); // Subscribe to all transactions
+});
 
-// Function to calculate total gas limit for SFTs (500,000 gas per asset)
-const calculateSftGasLimit = (qty) => {
-    return 500000 * qty;
-};
-
-// Function to calculate gas limit for ESDT transfers
-const calculateEsdtGasLimit = () => {
-    return BigInt(500000);  // Base gas per ESDT transaction
-};
-
-// Helper function to get REWARD token price
-const getRewardPrice = async () => {
+ws.on('message', async (data) => {
     try {
-        const response = await fetch('https://api.multiversx.com/mex/tokens/REWARD-cf6eac/price');
-        if (!response.ok) {
-            throw new Error('Failed to fetch REWARD token price');
+        const event = JSON.parse(data);
+        const tx = event.data?.transaction;
+        if (!tx || !eventFilters || Object.keys(eventFilters).length === 0) return;
+
+        // Decode transaction data (Base64) to check function type and asset identifier
+        const dataStr = tx.data ? Buffer.from(tx.data, 'base64').toString() : '';
+        const sender = tx.sender;
+        const receiver = tx.receiver;
+
+        // Match address (wallet or smart contract)
+        const matchesAddress = !eventFilters.address || 
+            [sender, receiver].includes(eventFilters.address) ||
+            (tx.smartContractResults?.address === eventFilters.address);
+
+        // Match direction
+        let matchesDirection = true;
+        if (eventFilters.direction === 'from' && sender !== eventFilters.address) matchesDirection = false;
+        if (eventFilters.direction === 'to' && receiver !== eventFilters.address) matchesDirection = false;
+        if (eventFilters.direction === 'both' && !([sender, receiver].includes(eventFilters.address))) matchesDirection = false;
+
+        // Match function type
+        const matchesFunction = !eventFilters.function_type || 
+            dataStr.includes(eventFilters.function_type);
+
+        // Match asset identifier
+        const matchesAsset = !eventFilters.asset_identifier || 
+            (dataStr.includes(eventFilters.asset_identifier) || 
+             (tx.value && eventFilters.asset_identifier === 'EGLD'));
+
+        // Match threshold (for amounts)
+        let matchesThreshold = true;
+        if (eventFilters.threshold) {
+            const amount = tx.value ? parseInt(tx.value) : // EGLD
+                (dataStr.match(/@(\d+)/) ? parseInt(dataStr.match(/@(\d+)/)[1]) : 0); // ESDT/NFT amount
+            matchesThreshold = amount >= eventFilters.threshold;
         }
-        const data = await response.json();
-        return data.price; // Price in USD
+
+        // If all filters match, send event to make.com webhook
+        if (matchesAddress && matchesDirection && matchesFunction && matchesAsset && matchesThreshold) {
+            console.log('Event matched:', tx);
+            await axios.post(MAKE_WEBHOOK_URL, {
+                event: tx,
+                timestamp: new Date().toISOString()
+            });
+        }
     } catch (error) {
-        console.error('Error fetching REWARD price:', error);
-        throw error;
+        console.error('Error processing WebSocket event:', error.message);
     }
+});
+
+ws.on('error', (err) => console.error('WebSocket error:', err));
+
+ws.on('close', () => {
+    console.log('WebSocket connection closed. Attempting to reconnect...');
+    setTimeout(() => {
+        ws.reconnect(); // Attempt to reconnect (you may need to implement reconnection logic)
+    }, 5000);
+});
+
+// Helper function to convert number to hex (used in Meta-ESDT)
+const toHex = (num) => {
+    return BigInt(num).toString(16).padStart(2, '0');
 };
+
+// Admin routes
+app.use('/admin', adminRoutes);
 
 // Start the server
 app.listen(PORT, () => {
