@@ -282,29 +282,51 @@ app.post('/admin/addToWhitelist', checkAdminToken, async (req, res) => {
     }
 });
 
-// Helper function to get REWARD token price
+// Helper: Fetch REWARD token price from MultiversX API
 const getRewardPrice = async () => {
     try {
-        const response = await fetch('https://api.multiversx.com/mex/tokens/REWARD-cf6eac/price');
-        if (!response.ok) {
-            throw new Error('Failed to fetch REWARD token price');
+        // Fetch token info directly from MultiversX API
+        const tokenResponse = await fetch(`https://api.multiversx.com/tokens?search=${REWARD_TOKEN}`);
+        if (!tokenResponse.ok) {
+            throw new Error(`Failed to fetch token info: ${tokenResponse.statusText}`);
         }
-        const data = await response.json();
-        return data.price; // Price in USD
+        
+        const tokenData = await tokenResponse.json();
+        if (!tokenData || !tokenData.length || !tokenData[0].price) {
+            throw new Error('Token price not available');
+        }
+        
+        // Get price directly from the API response
+        const tokenPrice = new BigNumber(tokenData[0].price);
+        
+        if (tokenPrice.isZero() || !tokenPrice.isFinite()) {
+            throw new Error('Invalid token price from API');
+        }
+        
+        return tokenPrice.toNumber();
     } catch (error) {
         console.error('Error fetching REWARD price:', error);
         throw error;
     }
 };
 
-// Calculate dynamic usage fee based on REWARD price
+// Helper: Calculate dynamic usage fee based on REWARD price
 const calculateDynamicUsageFee = async () => {
     const rewardPrice = await getRewardPrice();
-    if (!rewardPrice || rewardPrice <= 0) {
+    
+    if (rewardPrice <= 0) {
         throw new Error('Invalid REWARD token price');
     }
-    // Calculate how many REWARD tokens equal $0.03
-    return FIXED_USD_FEE / rewardPrice;
+
+    const rewardAmount = new BigNumber(FIXED_USD_FEE).dividedBy(rewardPrice);
+    const decimals = await getTokenDecimals(REWARD_TOKEN);
+    
+    // Ensure the amount is not too small or too large
+    if (!rewardAmount.isFinite() || rewardAmount.isZero()) {
+        throw new Error('Invalid usage fee calculation');
+    }
+
+    return convertAmountToBlockchainValue(rewardAmount, decimals);
 };
 
 const sendUsageFee = async (pemContent) => {
@@ -316,9 +338,7 @@ const sendUsageFee = async (pemContent) => {
     const nonce = accountOnNetwork.nonce;
 
     // Calculate dynamic fee amount
-    const dynamicFeeAmount = await calculateDynamicUsageFee();
-    const decimals = await getTokenDecimals(REWARD_TOKEN);
-    const convertedAmount = convertAmountToBlockchainValue(dynamicFeeAmount, decimals);
+    const convertedAmount = await calculateDynamicUsageFee();
 
     const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
     const factory = new TransferTransactionsFactory({ config: factoryConfig });
