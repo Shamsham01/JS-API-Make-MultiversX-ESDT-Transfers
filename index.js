@@ -12,7 +12,6 @@ const app = express();
 const PORT = process.env.PORT || 10000;
 const SECURE_TOKEN = process.env.SECURE_TOKEN;  // Secure Token for authorization
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN;  // Admin Token for whitelist management
-const USAGE_FEE = 100; // Fee in REWARD tokens
 const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
 const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make webhook URL for whitelist
@@ -700,87 +699,88 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
 
 // Store user-defined filters (from make.com)
 let eventFilters = {};
+let ws = null;
 
-// API endpoint to receive event filters from make.com
-app.post('/subscribe/events', checkToken, (req, res) => {
-    try {
-        eventFilters = req.body; // e.g., { address: "erd1...", direction: "from", function_type: "ESDTTransfer", asset_identifier: "WEED-123", threshold: 1000 }
-        console.log('Event filters updated:', eventFilters);
-        res.status(200).json({ message: 'Subscribed to MultiversX events' });
-    } catch (error) {
-        console.error('Error subscribing to events:', error.message);
-        res.status(400).json({ error: error.message });
-    }
-});
+// Function to create WebSocket connection
+const createWebSocketConnection = () => {
+    ws = new WebSocket('wss://gateway.multiversx.com/ws/events');
 
-// Initialize WebSocket connection to MultiversX
-const ws = new WebSocket('wss://gateway.multiversx.com/ws');
+    ws.on('open', () => {
+        console.log('Connected to MultiversX WebSocket');
+        // Subscribe to all transactions
+        ws.send(JSON.stringify({
+            method: 'subscribe',
+            topic: 'transactions'
+        }));
+    });
 
-ws.on('open', () => {
-    console.log('Connected to MultiversX WebSocket');
-    ws.send(JSON.stringify({ method: 'subscribe', topic: 'transaction' })); // Subscribe to all transactions
-});
+    ws.on('message', async (data) => {
+        try {
+            const event = JSON.parse(data);
+            const tx = event.data?.transaction;
+            if (!tx || !eventFilters || Object.keys(eventFilters).length === 0) return;
 
-ws.on('message', async (data) => {
-    try {
-        const event = JSON.parse(data);
-        const tx = event.data?.transaction;
-        if (!tx || !eventFilters || Object.keys(eventFilters).length === 0) return;
+            // Decode transaction data (Base64) to check function type and asset identifier
+            const dataStr = tx.data ? Buffer.from(tx.data, 'base64').toString() : '';
+            const sender = tx.sender;
+            const receiver = tx.receiver;
 
-        // Decode transaction data (Base64) to check function type and asset identifier
-        const dataStr = tx.data ? Buffer.from(tx.data, 'base64').toString() : '';
-        const sender = tx.sender;
-        const receiver = tx.receiver;
+            // Match address (wallet or smart contract)
+            const matchesAddress = !eventFilters.address || 
+                [sender, receiver].includes(eventFilters.address) ||
+                (tx.smartContractResults?.address === eventFilters.address);
 
-        // Match address (wallet or smart contract)
-        const matchesAddress = !eventFilters.address || 
-            [sender, receiver].includes(eventFilters.address) ||
-            (tx.smartContractResults?.address === eventFilters.address);
+            // Match direction
+            let matchesDirection = true;
+            if (eventFilters.direction === 'from' && sender !== eventFilters.address) matchesDirection = false;
+            if (eventFilters.direction === 'to' && receiver !== eventFilters.address) matchesDirection = false;
+            if (eventFilters.direction === 'both' && !([sender, receiver].includes(eventFilters.address))) matchesDirection = false;
 
-        // Match direction
-        let matchesDirection = true;
-        if (eventFilters.direction === 'from' && sender !== eventFilters.address) matchesDirection = false;
-        if (eventFilters.direction === 'to' && receiver !== eventFilters.address) matchesDirection = false;
-        if (eventFilters.direction === 'both' && !([sender, receiver].includes(eventFilters.address))) matchesDirection = false;
+            // Match function type
+            const matchesFunction = !eventFilters.function_type || 
+                dataStr.includes(eventFilters.function_type);
 
-        // Match function type
-        const matchesFunction = !eventFilters.function_type || 
-            dataStr.includes(eventFilters.function_type);
+            // Match asset identifier
+            const matchesAsset = !eventFilters.asset_identifier || 
+                (dataStr.includes(eventFilters.asset_identifier) || 
+                 (tx.value && eventFilters.asset_identifier === 'EGLD'));
 
-        // Match asset identifier
-        const matchesAsset = !eventFilters.asset_identifier || 
-            (dataStr.includes(eventFilters.asset_identifier) || 
-             (tx.value && eventFilters.asset_identifier === 'EGLD'));
+            // Match threshold (for amounts)
+            let matchesThreshold = true;
+            if (eventFilters.threshold) {
+                const amount = tx.value ? parseInt(tx.value) : // EGLD
+                    (dataStr.match(/@(\d+)/) ? parseInt(dataStr.match(/@(\d+)/)[1]) : 0); // ESDT/NFT amount
+                matchesThreshold = amount >= eventFilters.threshold;
+            }
 
-        // Match threshold (for amounts)
-        let matchesThreshold = true;
-        if (eventFilters.threshold) {
-            const amount = tx.value ? parseInt(tx.value) : // EGLD
-                (dataStr.match(/@(\d+)/) ? parseInt(dataStr.match(/@(\d+)/)[1]) : 0); // ESDT/NFT amount
-            matchesThreshold = amount >= eventFilters.threshold;
+            // If all filters match, send event to make.com webhook
+            if (matchesAddress && matchesDirection && matchesFunction && matchesAsset && matchesThreshold) {
+                console.log('Event matched:', tx);
+                await axios.post(MAKE_WEBHOOK_URL, {
+                    event: tx,
+                    timestamp: new Date().toISOString()
+                });
+            }
+        } catch (error) {
+            console.error('Error processing WebSocket event:', error.message);
         }
+    });
 
-        // If all filters match, send event to make.com webhook
-        if (matchesAddress && matchesDirection && matchesFunction && matchesAsset && matchesThreshold) {
-            console.log('Event matched:', tx);
-            await axios.post(MAKE_WEBHOOK_URL, {
-                event: tx,
-                timestamp: new Date().toISOString()
-            });
-        }
-    } catch (error) {
-        console.error('Error processing WebSocket event:', error.message);
-    }
-});
+    ws.on('error', (err) => {
+        console.error('WebSocket error:', err);
+        // Attempt to reconnect after error
+        setTimeout(createWebSocketConnection, 5000);
+    });
 
-ws.on('error', (err) => console.error('WebSocket error:', err));
+    ws.on('close', () => {
+        console.log('WebSocket connection closed. Attempting to reconnect...');
+        // Attempt to reconnect after connection is closed
+        setTimeout(createWebSocketConnection, 5000);
+    });
+};
 
-ws.on('close', () => {
-    console.log('WebSocket connection closed. Attempting to reconnect...');
-    setTimeout(() => {
-        ws.reconnect(); // Attempt to reconnect (you may need to implement reconnection logic)
-    }, 5000);
-});
+// Initialize WebSocket connection
+createWebSocketConnection();
 
 // Helper function to convert number to hex (used in Meta-ESDT)
 const toHex = (num) => {
