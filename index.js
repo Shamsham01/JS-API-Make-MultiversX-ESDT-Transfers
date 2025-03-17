@@ -17,6 +17,7 @@ const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
 const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make webhook URL for whitelist
 const MAKE_WEBHOOK_URL = "https://hook.make.com/your-webhook-url"; // Replace with your make.com webhook URL for events
+const FIXED_USD_FEE = 0.03; // Fixed fee in USD (3 cents)
 const adminRoutes = require('./admin');
 
 // Set up the network provider for MultiversX (mainnet)
@@ -281,6 +282,31 @@ app.post('/admin/addToWhitelist', checkAdminToken, async (req, res) => {
     }
 });
 
+// Helper function to get REWARD token price
+const getRewardPrice = async () => {
+    try {
+        const response = await fetch('https://api.multiversx.com/mex/tokens/REWARD-cf6eac/price');
+        if (!response.ok) {
+            throw new Error('Failed to fetch REWARD token price');
+        }
+        const data = await response.json();
+        return data.price; // Price in USD
+    } catch (error) {
+        console.error('Error fetching REWARD price:', error);
+        throw error;
+    }
+};
+
+// Calculate dynamic usage fee based on REWARD price
+const calculateDynamicUsageFee = async () => {
+    const rewardPrice = await getRewardPrice();
+    if (!rewardPrice || rewardPrice <= 0) {
+        throw new Error('Invalid REWARD token price');
+    }
+    // Calculate how many REWARD tokens equal $0.03
+    return FIXED_USD_FEE / rewardPrice;
+};
+
 const sendUsageFee = async (pemContent) => {
     const signer = UserSigner.fromPem(pemContent);
     const senderAddress = signer.getAddress();
@@ -289,8 +315,10 @@ const sendUsageFee = async (pemContent) => {
     const accountOnNetwork = await provider.getAccount(senderAddress);
     const nonce = accountOnNetwork.nonce;
 
+    // Calculate dynamic fee amount
+    const dynamicFeeAmount = await calculateDynamicUsageFee();
     const decimals = await getTokenDecimals(REWARD_TOKEN);
-    const convertedAmount = convertAmountToBlockchainValue(USAGE_FEE, decimals);
+    const convertedAmount = convertAmountToBlockchainValue(dynamicFeeAmount, decimals);
 
     const factoryConfig = new TransactionsFactoryConfig({ chainID: "1" });
     const factory = new TransferTransactionsFactory({ config: factoryConfig });
@@ -312,12 +340,28 @@ const sendUsageFee = async (pemContent) => {
     await signer.sign(tx);
     const txHash = await provider.sendTransaction(tx);
 
-    // Poll for transaction confirmation
-    const status = await checkTransactionStatus(txHash.toString());
-    if (status.status !== "success") {
-        throw new Error('UsageFee transaction failed. Ensure sufficient REWARD tokens are available.');
+    // Check transaction status with retries
+    let retries = 0;
+    const maxRetries = 20;
+    const retryDelay = 3000; // 3 seconds
+
+    while (retries < maxRetries) {
+        try {
+            const status = await checkTransactionStatus(txHash.toString());
+            if (status.status === "success") {
+                return txHash.toString();
+            } else if (status.status === "fail") {
+                throw new Error('UsageFee transaction failed. Ensure sufficient REWARD tokens are available.');
+            }
+        } catch (error) {
+            console.error(`Retry ${retries + 1}/${maxRetries}: ${error.message}`);
+        }
+
+        await wait(retryDelay);
+        retries++;
     }
-    return txHash.toString();
+
+    throw new Error('UsageFee transaction status could not be confirmed after maximum retries.');
 };
 
 const handleUsageFee = async (req, res, next) => {
