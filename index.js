@@ -16,6 +16,7 @@ const REWARD_TOKEN = "REWARD-cf6eac"; // Token identifier
 const TREASURY_WALLET = "erd158k2c3aserjmwnyxzpln24xukl2fsvlk9x46xae4dxl5xds79g6sdz37qn"; // Treasury wallet
 const WEBHOOK_WHITELIST_URL = "https://hook.eu2.make.com/mvi4kvg6arzxrxd5462f6nh2yqq1p5ot"; // Your Make webhook URL for whitelist
 const MAKE_WEBHOOK_URL = "https://hook.make.com/your-webhook-url"; // Replace with your make.com webhook URL for events
+const FIXED_USD_FEE = 0.03; // Fixed fee in USD (3 cents)
 const adminRoutes = require('./admin');
 
 // Set up the network provider for MultiversX (mainnet)
@@ -36,6 +37,16 @@ const checkAdminToken = (req, res, next) => {
         next();
     } else {
         res.status(401).json({ error: 'Unauthorized: Invalid Admin Token' });
+    }
+};
+
+// Middleware to check authorization token
+const checkToken = (req, res, next) => {
+    const token = req.headers.authorization;
+    if (token === `Bearer ${SECURE_TOKEN}`) {
+        next();
+    } else {
+        res.status(401).json({ error: 'Unauthorized' });
     }
 };
 
@@ -84,16 +95,6 @@ const sendWebhookUpdate = async (whitelist) => {
 };
 
 app.use(bodyParser.json());  // Support JSON-encoded bodies
-
-// Middleware to check authorization token
-const checkToken = (req, res, next) => {
-    const token = req.headers.authorization;
-    if (token === `Bearer ${SECURE_TOKEN}`) {
-        next();
-    } else {
-        res.status(401).json({ error: 'Unauthorized' });
-    }
-};
 
 // Function to validate and return the PEM content from the request body
 const getPemContent = (req) => {
@@ -809,6 +810,50 @@ const toHex = (num) => {
 
 // Admin routes
 app.use('/admin', adminRoutes);
+
+// API endpoint to receive event filters from make.com
+app.post('/subscribe/events', checkToken, (req, res) => {
+    try {
+        eventFilters = req.body; // e.g., { address: "erd1...", direction: "from", function_type: "ESDTTransfer", asset_identifier: "WEED-123", threshold: 1000 }
+        console.log('Event filters updated:', eventFilters);
+        res.status(200).json({ message: 'Subscribed to MultiversX events' });
+    } catch (error) {
+        console.error('Error subscribing to events:', error.message);
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// --------------- Gas Calculation Functions --------------- //
+
+// Function to calculate total gas limit for NFTs/scCalls (15,000,000 gas per asset)
+const calculateNftGasLimit = (qty) => {
+    return 15000000 * qty;
+};
+
+// Function to calculate total gas limit for SFTs (500,000 gas per asset)
+const calculateSftGasLimit = (qty) => {
+    return 500000 * qty;
+};
+
+// Function to calculate gas limit for ESDT transfers
+const calculateEsdtGasLimit = () => {
+    return BigInt(500000);  // Base gas per ESDT transaction
+};
+
+// Helper function to get REWARD token price
+const getRewardPrice = async () => {
+    try {
+        const response = await fetch('https://api.multiversx.com/mex/tokens/REWARD-cf6eac/price');
+        if (!response.ok) {
+            throw new Error('Failed to fetch REWARD token price');
+        }
+        const data = await response.json();
+        return data.price; // Price in USD
+    } catch (error) {
+        console.error('Error fetching REWARD price:', error);
+        throw error;
+    }
+};
 
 // Start the server
 app.listen(PORT, () => {
