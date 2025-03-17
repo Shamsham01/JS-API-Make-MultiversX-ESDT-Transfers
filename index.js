@@ -497,7 +497,7 @@ const sendEsdtToken = async (pemContent, recipient, amount, tokenTicker) => {
 };
 
 // Route for ESDT transfers
-app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
+app.post('/execute/esdtTransfer', checkToken, handleUsageFee, async (req, res) => {
     try {
         const { recipient, amount, tokenTicker } = req.body;
         const pemContent = getPemContent(req);
@@ -510,6 +510,7 @@ app.post('/execute/esdtTransfer', checkToken, async (req, res) => {
             message: "ESDT transfer executed successfully.",
             walletAddress: walletAddress,
             result: result,
+            usageFeeHash: req.usageFeeHash
         });
     } catch (error) {
         console.error('Error executing ESDT transaction:', error.message);
