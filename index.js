@@ -700,83 +700,103 @@ app.post('/execute/distributeRewardsToNftOwners', checkToken, handleUsageFee, as
 // Store user-defined filters (from make.com)
 let eventFilters = {};
 let ws = null;
+let reconnectAttempts = 0;
+const MAX_RECONNECT_ATTEMPTS = 5;
+const RECONNECT_INTERVAL = 5000;
 
 // Function to create WebSocket connection
 const createWebSocketConnection = () => {
-    ws = new WebSocket('wss://gateway.multiversx.com/ws/events');
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.log('Max reconnection attempts reached. Stopping WebSocket connection attempts.');
+        return;
+    }
 
-    ws.on('open', () => {
-        console.log('Connected to MultiversX WebSocket');
-        // Subscribe to all transactions
-        ws.send(JSON.stringify({
-            method: 'subscribe',
-            topic: 'transactions'
-        }));
-    });
+    try {
+        ws = new WebSocket('wss://gateway.multiversx.com/ws');
 
-    ws.on('message', async (data) => {
-        try {
-            const event = JSON.parse(data);
-            const tx = event.data?.transaction;
-            if (!tx || !eventFilters || Object.keys(eventFilters).length === 0) return;
+        ws.on('open', () => {
+            console.log('Connected to MultiversX WebSocket');
+            reconnectAttempts = 0; // Reset reconnect attempts on successful connection
+            // Subscribe to all transactions
+            ws.send(JSON.stringify({
+                method: 'subscribe',
+                topic: 'transactions'
+            }));
+        });
 
-            // Decode transaction data (Base64) to check function type and asset identifier
-            const dataStr = tx.data ? Buffer.from(tx.data, 'base64').toString() : '';
-            const sender = tx.sender;
-            const receiver = tx.receiver;
+        ws.on('message', async (data) => {
+            try {
+                const event = JSON.parse(data);
+                const tx = event.data?.transaction;
+                if (!tx || !eventFilters || Object.keys(eventFilters).length === 0) return;
 
-            // Match address (wallet or smart contract)
-            const matchesAddress = !eventFilters.address || 
-                [sender, receiver].includes(eventFilters.address) ||
-                (tx.smartContractResults?.address === eventFilters.address);
+                // Decode transaction data (Base64) to check function type and asset identifier
+                const dataStr = tx.data ? Buffer.from(tx.data, 'base64').toString() : '';
+                const sender = tx.sender;
+                const receiver = tx.receiver;
 
-            // Match direction
-            let matchesDirection = true;
-            if (eventFilters.direction === 'from' && sender !== eventFilters.address) matchesDirection = false;
-            if (eventFilters.direction === 'to' && receiver !== eventFilters.address) matchesDirection = false;
-            if (eventFilters.direction === 'both' && !([sender, receiver].includes(eventFilters.address))) matchesDirection = false;
+                // Match address (wallet or smart contract)
+                const matchesAddress = !eventFilters.address || 
+                    [sender, receiver].includes(eventFilters.address) ||
+                    (tx.smartContractResults?.address === eventFilters.address);
 
-            // Match function type
-            const matchesFunction = !eventFilters.function_type || 
-                dataStr.includes(eventFilters.function_type);
+                // Match direction
+                let matchesDirection = true;
+                if (eventFilters.direction === 'from' && sender !== eventFilters.address) matchesDirection = false;
+                if (eventFilters.direction === 'to' && receiver !== eventFilters.address) matchesDirection = false;
+                if (eventFilters.direction === 'both' && !([sender, receiver].includes(eventFilters.address))) matchesDirection = false;
 
-            // Match asset identifier
-            const matchesAsset = !eventFilters.asset_identifier || 
-                (dataStr.includes(eventFilters.asset_identifier) || 
-                 (tx.value && eventFilters.asset_identifier === 'EGLD'));
+                // Match function type
+                const matchesFunction = !eventFilters.function_type || 
+                    dataStr.includes(eventFilters.function_type);
 
-            // Match threshold (for amounts)
-            let matchesThreshold = true;
-            if (eventFilters.threshold) {
-                const amount = tx.value ? parseInt(tx.value) : // EGLD
-                    (dataStr.match(/@(\d+)/) ? parseInt(dataStr.match(/@(\d+)/)[1]) : 0); // ESDT/NFT amount
-                matchesThreshold = amount >= eventFilters.threshold;
+                // Match asset identifier
+                const matchesAsset = !eventFilters.asset_identifier || 
+                    (dataStr.includes(eventFilters.asset_identifier) || 
+                     (tx.value && eventFilters.asset_identifier === 'EGLD'));
+
+                // Match threshold (for amounts)
+                let matchesThreshold = true;
+                if (eventFilters.threshold) {
+                    const amount = tx.value ? parseInt(tx.value) : // EGLD
+                        (dataStr.match(/@(\d+)/) ? parseInt(dataStr.match(/@(\d+)/)[1]) : 0); // ESDT/NFT amount
+                    matchesThreshold = amount >= eventFilters.threshold;
+                }
+
+                // If all filters match, send event to make.com webhook
+                if (matchesAddress && matchesDirection && matchesFunction && matchesAsset && matchesThreshold) {
+                    console.log('Event matched:', tx);
+                    await axios.post(MAKE_WEBHOOK_URL, {
+                        event: tx,
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            } catch (error) {
+                console.error('Error processing WebSocket event:', error.message);
             }
+        });
 
-            // If all filters match, send event to make.com webhook
-            if (matchesAddress && matchesDirection && matchesFunction && matchesAsset && matchesThreshold) {
-                console.log('Event matched:', tx);
-                await axios.post(MAKE_WEBHOOK_URL, {
-                    event: tx,
-                    timestamp: new Date().toISOString()
-                });
-            }
-        } catch (error) {
-            console.error('Error processing WebSocket event:', error.message);
-        }
-    });
+        ws.on('error', (err) => {
+            console.error('WebSocket error:', err);
+            reconnectAttempts++;
+            console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+            // Attempt to reconnect after error
+            setTimeout(createWebSocketConnection, RECONNECT_INTERVAL);
+        });
 
-    ws.on('error', (err) => {
-        console.error('WebSocket error:', err);
-        // Attempt to reconnect after error
-        setTimeout(createWebSocketConnection, 5000);
-    });
-
-    ws.on('close', () => {
-        console.log('WebSocket connection closed. Attempting to reconnect...');
-        // Attempt to reconnect after connection is closed
-        setTimeout(createWebSocketConnection, 5000);
-    });
+        ws.on('close', () => {
+            console.log('WebSocket connection closed. Attempting to reconnect...');
+            reconnectAttempts++;
+            console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+            // Attempt to reconnect after connection is closed
+            setTimeout(createWebSocketConnection, RECONNECT_INTERVAL);
+        });
+    } catch (error) {
+        console.error('Error creating WebSocket connection:', error);
+        reconnectAttempts++;
+        console.log(`Reconnection attempt ${reconnectAttempts}/${MAX_RECONNECT_ATTEMPTS}`);
+        setTimeout(createWebSocketConnection, RECONNECT_INTERVAL);
+    }
 };
 
 // Initialize WebSocket connection
